@@ -34,6 +34,7 @@ where
     Standard: Distribution<T>,
     T: hyperplane::ProjLSH<T, D>,
     [(); pow2(NB)]:,
+    I: Copy,
 {
     pub fn new<R: Rng>(rng: &mut R, vectors: &[(I, [T; D]); N]) -> Self {
         // Costruct `NB` hyperplanes.
@@ -54,11 +55,53 @@ where
             hyperplane_normals
         };
 
-        // Build the underlying `buf` containing vector indices alongside `bin_idx` which points
-        // to the index withing `buf` where that bin begins.
+        // Build the underlying `buf` containing vector identifiers alongside `bin_idx` which points
+        // to the index within `buf` where a specific bin begins.
         let build_bin_idx_buf =
             |hyperplane_normals: &[[T; D]; NB]| -> ([Option<usize>; pow2(NB)], [I; N]) {
-                todo!("Implement");
+                // For each vector, reduce to the binary vector via computing the random
+                // projection against our hyperplanes.
+                // TODO: Proper way to initialize `projections`?
+                let mut projections: [(I, usize); N] =
+                    unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+
+                for i in 0..N {
+                    let mem = projections.get_mut(i).unwrap();
+                    let (ident, query_vector) = vectors.get(i).unwrap();
+                    *mem = (
+                        *ident,
+                        hyperplane::hyperplane_project(hyperplane_normals, query_vector),
+                    );
+                }
+
+                // Sort the projections by bin_idx.
+                projections.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+
+                // For `i` in 0..pow2(NB), find the first index where `i` appears.
+                // NOTE: the current implementation of `find` short-circuits which is what we desire.
+                // TODO: Proper way to initialize `bin_idx`?
+                let mut bin_idx = [None; pow2(NB)];
+                for i in 0..pow2(NB) {
+                    let mem = bin_idx.get_mut(i).unwrap();
+                    match projections
+                        .iter()
+                        .enumerate()
+                        .find(|(_proj_idx, &(_ident, idx))| i == idx)
+                    {
+                        Some((proj_idx, _)) => *mem = Some(proj_idx),
+                        None => *mem = None,
+                    }
+                }
+
+                // Drop the query vector so that `I` is all that remains.
+                // TODO: Proper way to initialize `buf`?
+                let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+                for idx in 0..N {
+                    let mem = buf.get_mut(idx).unwrap();
+                    *mem = projections.get(idx).unwrap().0;
+                }
+
+                (bin_idx, buf)
             };
 
         let hyperplane_normals = build_hyperplanes(rng);
