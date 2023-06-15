@@ -1,5 +1,7 @@
+// src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 use rand::{
     distributions::{Distribution, Standard},
+    seq::IteratorRandom,
     Rng,
 };
 
@@ -113,18 +115,40 @@ where
         }
     }
 
-    pub fn ann<R: Rng>(&self, rng: &mut R, q: &[T; D]) -> I {
+    /// Find an approximate nearest neighbor for an input vector. NOTE: this will
+    /// return a random vector from a *single bin*.
+    pub fn ann<R: Rng>(&self, rng: &mut R, q: &[T; D]) -> Option<I> {
         let idx = hyperplane::hyperplane_project(&self.hyperplane_normals, q);
+        if let Some(buf_idx) = self.bin_idx.get(idx).unwrap() {
+            // Find the beginning an end of the bin within the `buf` arr, then select
+            // a random identifier.
+            let beg: usize = *buf_idx;
+            let end: usize = {
+                let mut ctr: usize = *buf_idx + 1;
+                loop {
+                    if let Some(x) = self.bin_idx.get(ctr) {
+                        match x {
+                            Some(value) => break *value,
+                            None => {
+                                ctr = ctr + 1;
+                                continue;
+                            }
+                        }
+                    } else {
+                        break N; // the bin was the last index: the `end` is `N`.
+                    }
+                }
+            };
 
-        let (beg, end) = {
-            // TODO: Is there something nicer than dereferencing
-            // the reference here?
-            let beg = self.bin_idx.get(idx).unwrap();
-            let end = self.bin_idx.get(idx + 1).unwrap(); // TODO: This can overflow: should unwrap_or to `N`.
-            (beg, end)
-        };
-
-        todo!("Sample a value I from `self.buf` between [beg, end)");
+            self.buf
+                .iter()
+                .skip(beg) // range begins at `beg`
+                .take(end - beg) // range continues for `end - beg` values.
+                .choose(rng)
+                .copied() // `Option<&I>` to `Option<I>`.
+        } else {
+            None // TODO: If we don't find any vectors within this bin, attempt to find one in a similar bin?
+        }
     }
 }
 
