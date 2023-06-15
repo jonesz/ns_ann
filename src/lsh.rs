@@ -221,7 +221,7 @@ mod hyperplane {
         fn proj(a: &[T; D], b: &[T; D]) -> Sign;
     }
 
-    impl<const D: usize> ProjLSH<f32, D> for [f32; D] {
+    impl<const D: usize> ProjLSH<f32, D> for f32 {
         fn proj(a: &[f32; D], b: &[f32; D]) -> Sign {
             (0..D)
                 .fold(0.0f32, |acc, idx| {
@@ -231,7 +231,7 @@ mod hyperplane {
         }
     }
 
-    impl<const D: usize> ProjLSH<f64, D> for [f64; D] {
+    impl<const D: usize> ProjLSH<f64, D> for f64 {
         fn proj(a: &[f64; D], b: &[f64; D]) -> Sign {
             (0..D)
                 .fold(0.0f64, |acc, idx| {
