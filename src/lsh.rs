@@ -43,7 +43,7 @@ where
         assert!(idx < pow2(NB));
 
         if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
-            for bin_opt in &self.bin_idx[*beg_buf_idx..N] {
+            for bin_opt in self.bin_idx.iter().skip(idx) {
                 if let Some(end_buf_idx) = bin_opt {
                     std::ops::Range {
                         start: *beg_buf_idx,
