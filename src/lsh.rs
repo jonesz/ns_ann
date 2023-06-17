@@ -38,6 +38,7 @@ where
     [(); pow2(NB)]:,
     I: Copy,
 {
+    // TODO: Test this behavior.
     /// Find the start and end of the bin within the `buf` arr.
     fn bin_range(&self, idx: usize) -> std::ops::Range<usize> {
         assert!(idx < pow2(NB));
@@ -66,6 +67,7 @@ where
         }
     }
 
+    // TODO: lshdb that doesn't take the entirety of the vectors at runtime.
     pub fn new<R: Rng>(rng: &mut R, vectors: &[(I, [T; D]); N]) -> Self {
         // Costruct `NB` hyperplanes.
         let build_hyperplanes = |rng: &mut R| -> [[T; D]; NB] {
@@ -263,6 +265,7 @@ pub mod hyperplane {
         buf
     }
 
+    // TODO: this should be tested.
     // TODO: This should be hidden private and exposed as pub when a cfg feature like
     // 'benchmark' is enabled; should be pub(super).
     /// Given a set of hyperplane normals, compute the binary vector (usize) representation.
