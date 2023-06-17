@@ -167,16 +167,9 @@ mod tests {
         assert_eq!(pow2(2), 4);
         assert_eq!(pow2(4), 16);
     }
-
-    #[test]
-    fn test_LSHDB_new() {
-        let mut rng = rand::thread_rng();
-        // let _: LSHDB<4, f32, 8> = LSHDB::new(&mut rng);
-        todo!("Rather than utilize thread_rng, use a reproducible seed.");
-    }
 }
 
-mod hyperplane {
+pub mod hyperplane {
     use rand::{
         distributions::{Distribution, Standard},
         Rng,
@@ -242,9 +235,8 @@ mod hyperplane {
     }
 
     /// Create a normal for a random hyperplane.
-    pub(super) fn random_hyperplane_normal<R, T, const D: usize>(rng: &mut R) -> [T; D]
+    pub fn random_hyperplane_normal<T, const D: usize, R: Rng>(rng: &mut R) -> [T; D]
     where
-        R: Rng,
         Standard: Distribution<T>,
     {
         let buf = {
