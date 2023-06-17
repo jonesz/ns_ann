@@ -169,6 +169,8 @@ mod tests {
     }
 }
 
+// TODO: This should be hidden private and exposed as pub when a cfg feature like
+// 'benchmark' is enabled.
 pub mod hyperplane {
     use rand::{
         distributions::{Distribution, Standard},
@@ -234,6 +236,8 @@ pub mod hyperplane {
         }
     }
 
+    // TODO: This should be hidden private and exposed as pub when a cfg feature like
+    // 'benchmark' is enabled; should be pub(super).
     /// Create a normal for a random hyperplane.
     pub fn random_hyperplane_normal<T, const D: usize, R: Rng>(rng: &mut R) -> [T; D]
     where
@@ -253,8 +257,10 @@ pub mod hyperplane {
         buf
     }
 
+    // TODO: This should be hidden private and exposed as pub when a cfg feature like
+    // 'benchmark' is enabled; should be pub(super).
     /// Given a set of hyperplane normals, compute the binary vector (usize) representation.
-    pub(super) fn hyperplane_project<T, const D: usize>(normals: &[[T; D]], query: &[T; D]) -> usize
+    pub fn hyperplane_project<T, const D: usize>(normals: &[[T; D]], query: &[T; D]) -> usize
     where
         T: ProjLSH<T, D>,
     {
