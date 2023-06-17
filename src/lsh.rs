@@ -22,7 +22,7 @@ pub const fn pow2(n: usize) -> usize {
 
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
 /// and utilizing `I` to identify them.
-pub struct LSHDB<const NB: usize, const N: usize, T, const D: usize, I>
+pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I>
 where
     [(); pow2(NB)]:,
 {
@@ -31,13 +31,36 @@ where
     buf: [I; N],
 }
 
-impl<const NB: usize, const N: usize, T, const D: usize, I> LSHDB<NB, N, T, D, I>
+impl<'a, const NB: usize, const N: usize, T, const D: usize, I> LSHDB<'a, NB, N, T, D, I>
 where
     Standard: Distribution<T>,
     T: hyperplane::ProjLSH<T, D>,
     [(); pow2(NB)]:,
     I: Copy,
 {
+    /// Find the start and end of the bin within the `buf` arr.
+    fn bin_range(&self, idx: usize) -> std::ops::Range<usize> {
+        assert!(idx < pow2(NB));
+
+        if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
+            for bin_opt in &self.bin_idx[*beg_buf_idx..N] {
+                if let Some(end_buf_idx) = bin_opt {
+                    std::ops::Range {
+                        start: *beg_buf_idx,
+                        end: *end_buf_idx,
+                    };
+                }
+            }
+            std::ops::Range {
+                start: *beg_buf_idx,
+                end: N,
+            }
+        } else {
+            // There are no values within this bin.
+            todo!("There were no values within this bin; find another bin with a similar hamming distance...");
+        }
+    }
+
     pub fn new<R: Rng>(rng: &mut R, vectors: &[(I, [T; D]); N]) -> Self {
         // Costruct `NB` hyperplanes.
         let build_hyperplanes = |rng: &mut R| -> [[T; D]; NB] {
@@ -115,40 +138,18 @@ where
         }
     }
 
+    /// Find an approximate nearest neigh for an input vector.
+    pub fn ann(&'a self, q: &[T; D]) -> impl Iterator<Item = &'a I> {
+        let idx = hyperplane::hyperplane_project(&self.hyperplane_normals, q);
+        let range = self.bin_range(idx);
+        // TODO: Is there a way to pass the range into `.iter()` ?
+        self.buf.iter().skip(range.start).take(range.end)
+    }
+
     /// Find an approximate nearest neighbor for an input vector. NOTE: this will
     /// return a random vector from a *single bin*.
-    pub fn ann<R: Rng>(&self, rng: &mut R, q: &[T; D]) -> Option<I> {
-        let idx = hyperplane::hyperplane_project(&self.hyperplane_normals, q);
-        if let Some(buf_idx) = self.bin_idx.get(idx).unwrap() {
-            // Find the beginning an end of the bin within the `buf` arr, then select
-            // a random identifier.
-            let beg: usize = *buf_idx;
-            let end: usize = {
-                let mut ctr: usize = *buf_idx + 1;
-                loop {
-                    if let Some(x) = self.bin_idx.get(ctr) {
-                        match x {
-                            Some(value) => break *value,
-                            None => {
-                                ctr = ctr + 1;
-                                continue;
-                            }
-                        }
-                    } else {
-                        break N; // the bin was the last index: the `end` is `N`.
-                    }
-                }
-            };
-
-            self.buf
-                .iter()
-                .skip(beg) // range begins at `beg`
-                .take(end - beg) // range continues for `end - beg` values.
-                .choose(rng)
-                .copied() // `Option<&I>` to `Option<I>`.
-        } else {
-            None // TODO: If we don't find any vectors within this bin, attempt to find one in a similar bin?
-        }
+    pub fn ann_rand<R: Rng>(&'a self, rng: &mut R, q: &[T; D]) -> Option<&'a I> {
+        self.ann(q).choose(rng)
     }
 }
 
