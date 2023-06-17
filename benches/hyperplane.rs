@@ -19,7 +19,7 @@ fn bench_random_hyperplane_normal_f32_large(c: &mut Criterion) {
 fn bench_hyperplane_project_f32_large(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
 
-    const NB: usize = 32;
+    const NB: usize = 5;
     let mut hyperplane_normals: Vec<[f32; V_DIM_LARGE]> = Vec::with_capacity(NB);
     for _ in 0..NB {
         hyperplane_normals.push(hyperplane::random_hyperplane_normal(&mut rng));
