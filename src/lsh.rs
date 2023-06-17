@@ -43,17 +43,22 @@ where
         assert!(idx < pow2(NB));
 
         if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
-            for bin_opt in self.bin_idx.iter().skip(idx) {
-                if let Some(end_buf_idx) = bin_opt {
-                    std::ops::Range {
-                        start: *beg_buf_idx,
-                        end: *end_buf_idx,
-                    };
-                }
-            }
+            let end_buf_idx = self
+                .bin_idx
+                .iter()
+                .skip(idx + 1) // Iteration begins at `idx + 1`;
+                .find(|&x| x.is_some())
+                .copied()
+                .unwrap_or(Some(N))
+                .unwrap();
+
+            // If there is a `beg_buf_idx`, there is at least a single vector, so the range
+            // end should be different.
+            assert!(*beg_buf_idx != end_buf_idx);
+
             std::ops::Range {
                 start: *beg_buf_idx,
-                end: N,
+                end: end_buf_idx,
             }
         } else {
             // There are no values within this bin.
