@@ -21,8 +21,9 @@ pub const fn pow2(n: usize) -> usize {
 // within a contigious array. We note the beginning of each group within `bin_idx`, which
 // indicates the index to begin at within `buf`.
 
-pub enum ProjMethod {
-    Runtime(u64),
+pub enum HyperplaneTiming<const NB: usize, T, const D: usize> {
+    OnInitialization([[T; D]; NB]),
+    OnDemand(u64),
 }
 
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
@@ -73,13 +74,18 @@ where
     }
 
     /// Compute the binary vector representation of `q`.
-    fn to_hyperplane_proj(method: ProjMethod, q: &[T; D]) -> usize {
+    fn to_hyperplane_proj(method: HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
         let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
         match method {
-            ProjMethod::Runtime(seed) => {
+            HyperplaneTiming::OnDemand(seed) => {
                 let mut rng = SmallRng::seed_from_u64(seed);
                 for mem in sign_arr.iter_mut() {
                     let hn = hyperplane::random_hyperplane_normal(&mut rng);
+                    *mem = T::proj(q, &hn);
+                }
+            }
+            HyperplaneTiming::OnInitialization(hyperplanes) => {
+                for (mem, hn) in sign_arr.iter_mut().zip(hyperplanes) {
                     *mem = T::proj(q, &hn);
                 }
             }
