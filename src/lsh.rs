@@ -26,6 +26,27 @@ pub enum HyperplaneTiming<const NB: usize, T, const D: usize> {
     OnDemand(u64),
 }
 
+impl<const NB: usize, T, const D: usize> HyperplaneTiming<NB, T, D>
+where
+    Standard: Distribution<T>,
+{
+    pub fn build_on_init<R: Rng>(rng: &mut R) -> Self {
+        HyperplaneTiming::OnInitialization({
+            // TODO: What's the 'proper' way to initialize this?
+            let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
+                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+
+            // TODO: Should this be a random gaussian vector? A random unit normal?
+            for component in &mut data[..] {
+                let hn = hyperplane::random_hyperplane_normal(rng);
+                component.write(hn);
+            }
+
+            unsafe { data.as_ptr().cast::<[[T; D]; NB]>().read() }
+        })
+    }
+}
+
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
 /// and utilizing `I` to identify them.
 pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I>
