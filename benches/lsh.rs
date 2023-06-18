@@ -2,7 +2,7 @@ use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use eann_db::lsh::LSHDB;
 use rand::{seq::SliceRandom, Fill, Rng};
 
-fn bench_lsh_ann_f32(c: &mut Criterion) {
+fn bench_lsh_ann_f32_on_init(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
 
     const V_DIM: usize = 128;
@@ -24,15 +24,15 @@ fn bench_lsh_ann_f32(c: &mut Criterion) {
     };
 
     let v_set: [(usize, [f32; V_DIM]); N] = build_vectors().try_into().unwrap();
-    let db = LSHDB::<NB, N, f32, V_DIM, usize>::new(&mut rng, &v_set);
+    let db = LSHDB::<NB, N, f32, V_DIM, usize>::new(&mut rng, &v_set, None);
 
-    c.bench_function("bench_lsh_ann_f32_large", |b| {
+    c.bench_function("bench_lsh_ann_f32_large_on_init", |b| {
         let (_, q_vector) = v_set.choose(&mut rng).unwrap();
         b.iter(|| {
-            db.ann(black_box(q_vector));
+            let _ = db.ann(black_box(q_vector));
         })
     });
 }
 
-criterion_group!(benches, bench_lsh_ann_f32);
+criterion_group!(benches, bench_lsh_ann_f32_on_init);
 criterion_main!(benches);

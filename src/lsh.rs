@@ -53,7 +53,7 @@ pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I>
 where
     [(); pow2(NB)]:,
 {
-    hyperplane_normals: [[T; D]; NB],
+    hyperplane_normals: HyperplaneTiming<NB, T, D>,
     bin_idx: [Option<usize>; pow2(NB)], // contains the index where the bin begins within `buf`.
     buf: [I; N],
 }
@@ -95,11 +95,11 @@ where
     }
 
     /// Compute the binary vector representation of `q`.
-    fn to_hyperplane_proj(method: HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
+    fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
         let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
         match method {
             HyperplaneTiming::OnDemand(seed) => {
-                let mut rng = SmallRng::seed_from_u64(seed);
+                let mut rng = SmallRng::seed_from_u64(*seed);
                 for mem in sign_arr.iter_mut() {
                     let hn = hyperplane::random_hyperplane_normal(&mut rng);
                     *mem = T::proj(q, &hn);
@@ -116,86 +116,65 @@ where
     }
 
     // TODO: lshdb that doesn't take the entirety of the vectors at runtime.
-    pub fn new<R: Rng>(rng: &mut R, vectors: &[(I, [T; D]); N]) -> Self {
-        // Costruct `NB` hyperplanes.
-        let build_hyperplanes = |rng: &mut R| -> [[T; D]; NB] {
-            let hyperplane_normals = {
-                // TODO: What's the 'proper' way to initialize this?
-                let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
-                    unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-                // TODO: Should this be a random gaussian vector? A random unit normal?
-                for component in &mut data[..] {
-                    let hn = hyperplane::random_hyperplane_normal(rng);
-                    component.write(hn);
+    pub fn new<R: Rng>(
+        rng: &mut R,
+        vectors: &[(I, [T; D]); N],
+        ht: Option<HyperplaneTiming<NB, T, D>>,
+    ) -> Self {
+        let ht = ht.unwrap_or_else(|| -> HyperplaneTiming<NB, T, D> {
+            HyperplaneTiming::build_on_init(rng)
+        });
+
+        let build_bin_idx_buf = || -> ([Option<usize>; pow2(NB)], [I; N]) {
+            // For each vector, reduce to the binary vector via computing the random
+            // projection against our hyperplanes.
+            // TODO: Proper way to initialize `projections`?
+            let mut projections: [(I, usize); N] =
+                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+
+            for (mem, (ident, qv)) in projections.iter_mut().zip(vectors) {
+                *mem = (*ident, LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&ht, qv));
+            }
+
+            // Sort the projections by bin_idx.
+            projections.sort_unstable_by(|a, b| a.1.cmp(&b.1));
+
+            // For `i` in 0..pow2(NB), find the first index where `i` appears.
+            // NOTE: the current implementation of `find` short-circuits which is what we desire.
+            // TODO: Proper way to initialize `bin_idx`?
+            let mut bin_idx = [None; pow2(NB)];
+            for (i, mem) in bin_idx.iter_mut().enumerate() {
+                match projections
+                    .iter()
+                    .enumerate()
+                    .find(|(_proj_idx, &(_ident, idx))| i == idx)
+                {
+                    Some((proj_idx, _)) => *mem = Some(proj_idx),
+                    None => *mem = None,
                 }
+            }
 
-                unsafe { data.as_ptr().cast::<[[T; D]; NB]>().read() }
-            };
+            // Drop the query vector so that `I` is all that remains.
+            // TODO: Proper way to initialize `buf`?
+            let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            for (mem, proj) in buf.iter_mut().zip(projections) {
+                *mem = proj.0
+            }
 
-            hyperplane_normals
+            (bin_idx, buf)
         };
 
-        // Build the underlying `buf` containing vector identifiers alongside `bin_idx` which points
-        // to the index within `buf` where a specific bin begins.
-        let build_bin_idx_buf =
-            |hyperplane_normals: &[[T; D]; NB]| -> ([Option<usize>; pow2(NB)], [I; N]) {
-                // For each vector, reduce to the binary vector via computing the random
-                // projection against our hyperplanes.
-                // TODO: Proper way to initialize `projections`?
-                let mut projections: [(I, usize); N] =
-                    unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-
-                for i in 0..N {
-                    let mem = projections.get_mut(i).unwrap();
-                    let (ident, query_vector) = vectors.get(i).unwrap();
-                    *mem = (
-                        *ident,
-                        hyperplane::hyperplane_project(hyperplane_normals, query_vector),
-                    );
-                }
-
-                // Sort the projections by bin_idx.
-                projections.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-
-                // For `i` in 0..pow2(NB), find the first index where `i` appears.
-                // NOTE: the current implementation of `find` short-circuits which is what we desire.
-                // TODO: Proper way to initialize `bin_idx`?
-                let mut bin_idx = [None; pow2(NB)];
-                for i in 0..pow2(NB) {
-                    let mem = bin_idx.get_mut(i).unwrap();
-                    match projections
-                        .iter()
-                        .enumerate()
-                        .find(|(_proj_idx, &(_ident, idx))| i == idx)
-                    {
-                        Some((proj_idx, _)) => *mem = Some(proj_idx),
-                        None => *mem = None,
-                    }
-                }
-
-                // Drop the query vector so that `I` is all that remains.
-                // TODO: Proper way to initialize `buf`?
-                let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-                for idx in 0..N {
-                    let mem = buf.get_mut(idx).unwrap();
-                    *mem = projections.get(idx).unwrap().0;
-                }
-
-                (bin_idx, buf)
-            };
-
-        let hyperplane_normals = build_hyperplanes(rng);
-        let (bin_idx, buf) = build_bin_idx_buf(&hyperplane_normals);
+        let (bin_idx, buf) = build_bin_idx_buf();
         Self {
-            hyperplane_normals,
+            hyperplane_normals: ht,
             bin_idx,
             buf,
         }
     }
 
     /// Find an approximate nearest neigh for an input vector.
-    pub fn ann(&'a self, q: &[T; D]) -> impl Iterator<Item = &'a I> {
-        let idx = hyperplane::hyperplane_project(&self.hyperplane_normals, q);
+    pub fn ann(&'a self, qv: &[T; D]) -> impl Iterator<Item = &'a I> {
+        let idx = LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&self.hyperplane_normals, qv);
         let range = self.bin_range(idx);
         // TODO: Is there a way to pass the range into `.iter()` ?
         self.buf.iter().skip(range.start).take(range.end)
@@ -203,8 +182,8 @@ where
 
     /// Find an approximate nearest neighbor for an input vector. NOTE: this will
     /// return a random vector from a *single bin*.
-    pub fn ann_rand<R: Rng>(&'a self, rng: &mut R, q: &[T; D]) -> Option<&'a I> {
-        self.ann(q).choose(rng)
+    pub fn ann_rand<R: Rng>(&'a self, rng: &mut R, qv: &[T; D]) -> Option<&'a I> {
+        self.ann(qv).choose(rng)
     }
 }
 
@@ -329,23 +308,6 @@ pub mod hyperplane {
         buf
     }
 
-    // TODO: this should be tested.
-    // TODO: This should be hidden private and exposed as pub when a cfg feature like
-    // 'benchmark' is enabled; should be pub(super).
-    /// Given a set of hyperplane normals, compute the binary vector (usize) representation.
-    pub fn hyperplane_project<T, const D: usize>(normals: &[[T; D]], query: &[T; D]) -> usize
-    where
-        T: ProjLSH<T, D>,
-    {
-        normals
-            .iter()
-            .map(|nrml| T::proj(query, nrml))
-            .enumerate()
-            .fold(0usize, |acc, (idx, value)| {
-                acc + (Into::<usize>::into(value) << idx)
-            })
-    }
-
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -369,12 +331,5 @@ pub mod hyperplane {
             let mut rng = rand::thread_rng();
             let _: [f32; 4] = random_hyperplane_normal(&mut rng);
         }
-
-        /*
-        #[test]
-        fn test_hyperplane_project() {
-            todo!("Implement hyperplane projection.");
-        }
-        */
     }
 }

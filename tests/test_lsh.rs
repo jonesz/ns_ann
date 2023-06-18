@@ -14,7 +14,7 @@ fn test_lshdb() {
     let v_set: [(usize, [f32; V_DIM]); N] = common::build_vectors().try_into().unwrap();
     let mut rng = rand::thread_rng();
 
-    let db = LSHDB::<NB, N, f32, V_DIM, usize>::new(&mut rng, &v_set);
+    let db = LSHDB::<NB, N, f32, V_DIM, usize>::new(&mut rng, &v_set, None);
 
     let (q_ident, q_vector) = v_set.get(0).unwrap();
     assert_eq!(db.ann(q_vector).find(|&x| x == q_ident).is_some(), true);
