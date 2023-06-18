@@ -191,6 +191,21 @@ pub mod hyperplane {
         Negative,
     }
 
+    impl Sign {
+        // Convert an arr of `Sign` into a single usize.
+        pub fn to_usize<const L: usize>(sign_arr: [Sign; L]) -> usize {
+            // TODO: There's const-generic type-system magic to force this check
+            // at compile time.
+            assert!(L <= usize::BITS.try_into().unwrap());
+            sign_arr
+                .into_iter()
+                .enumerate()
+                .fold(0usize, |acc, (idx, value)| {
+                    acc + (Into::<usize>::into(value) << idx)
+                })
+        }
+    }
+
     impl Into<usize> for Sign {
         fn into(self) -> usize {
             match self {
@@ -285,6 +300,20 @@ pub mod hyperplane {
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        #[test]
+        fn test_sign_to_usize() {
+            assert_eq!(
+                Sign::to_usize([
+                    Sign::Positive,
+                    Sign::Negative,
+                    Sign::Negative,
+                    Sign::Positive,
+                    Sign::Positive
+                ]),
+                0b11001
+            );
+        }
 
         #[test]
         fn build_random_hyperplane_normal() {
