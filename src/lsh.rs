@@ -86,7 +86,7 @@ where
 
             // If there is a `beg_buf_idx`, there is at least a single vector, so the range
             // end should be different.
-            assert!(*beg_buf_idx != end_buf_idx);
+            assert!(*beg_buf_idx < end_buf_idx);
 
             std::ops::Range {
                 start: *beg_buf_idx,
@@ -212,6 +212,23 @@ mod tests {
     fn test_pow2() {
         assert_eq!(pow2(2), 4);
         assert_eq!(pow2(4), 16);
+    }
+
+    #[test]
+    fn test_bin_range_one() {
+        const NB: usize = 2;
+        const N: usize = 1;
+        const D: usize = 1;
+
+        let mut rng = rand::thread_rng();
+        let inner_vec = [1.0; D];
+        let outer_vec = [(0u8, inner_vec); N];
+
+        let d = LSHDB::<NB, N, f32, D, u8>::new(&mut rng, &outer_vec, None);
+        let x = LSHDB::<NB, N, f32, D, u8>::to_hyperplane_proj(&d.hyperplane_normals, &inner_vec);
+
+        // When we have a single vector, (start, end) should be (0, 1).
+        assert_eq!(d.bin_range(x), std::ops::Range { start: 0, end: N });
     }
 }
 
