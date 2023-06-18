@@ -1,8 +1,9 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 use rand::{
     distributions::{Distribution, Standard},
+    rngs::SmallRng,
     seq::IteratorRandom,
-    Rng,
+    Rng, SeedableRng,
 };
 
 /// Hamming distance between two values.
@@ -19,6 +20,10 @@ pub const fn pow2(n: usize) -> usize {
 // random hyperplanes. With those binary vectors, we sort them into groups and place them
 // within a contigious array. We note the beginning of each group within `bin_idx`, which
 // indicates the index to begin at within `buf`.
+
+pub enum ProjMethod {
+    Runtime(u64),
+}
 
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
 /// and utilizing `I` to identify them.
@@ -65,6 +70,22 @@ where
             // There are no values within this bin.
             todo!("There were no values within this bin; find another bin with a similar hamming distance...");
         }
+    }
+
+    /// Compute the binary vector representation of `q`.
+    fn to_hyperplane_proj(method: ProjMethod, q: &[T; D]) -> usize {
+        let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
+        match method {
+            ProjMethod::Runtime(seed) => {
+                let mut rng = SmallRng::seed_from_u64(seed);
+                for mem in sign_arr.iter_mut() {
+                    let hn = hyperplane::random_hyperplane_normal(&mut rng);
+                    *mem = T::proj(q, &hn);
+                }
+            }
+        };
+
+        hyperplane::Sign::to_usize(sign_arr)
     }
 
     // TODO: lshdb that doesn't take the entirety of the vectors at runtime.
@@ -185,8 +206,9 @@ pub mod hyperplane {
         Rng,
     };
 
-    #[derive(Debug)]
+    #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
+        #[default]
         Positive,
         Negative,
     }
