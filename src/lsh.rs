@@ -31,6 +31,10 @@ where
     Standard: Distribution<T>,
 {
     pub fn build_on_init<R: Rng>(rng: &mut R) -> Self {
+        // TODO: Does the compiler complain if this is the case? It should be moved to
+        // type-system const-generic magic.
+        assert!(NB > 0 && D > 0);
+
         HyperplaneTiming::OnInitialization({
             // TODO: What's the 'proper' way to initialize this?
             let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
@@ -96,6 +100,9 @@ where
 
     /// Compute the binary vector representation of `q`.
     fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
+        // TODO: Does the compiler complain if this is the case? It should be moved to
+        // type-system const-generic magic.
+        assert!(NB > 0 && D > 0);
         let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
         match method {
             HyperplaneTiming::OnDemand(seed) => {
@@ -121,17 +128,21 @@ where
         vectors: &[(I, [T; D]); N],
         ht: Option<HyperplaneTiming<NB, T, D>>,
     ) -> Self {
+        // TODO: Does the compiler complain if this is the case? It should be moved to
+        // type-system const-generic magic.
+        assert!(NB > 0 && D > 0 && N > 0);
+
         let ht = ht.unwrap_or_else(|| -> HyperplaneTiming<NB, T, D> {
             HyperplaneTiming::build_on_init(rng)
         });
 
         let build_bin_idx_buf = || -> ([Option<usize>; pow2(NB)], [I; N]) {
-            // For each vector, reduce to the binary vector via computing the random
-            // projection against our hyperplanes.
             // TODO: Proper way to initialize `projections`?
             let mut projections: [(I, usize); N] =
                 unsafe { std::mem::MaybeUninit::uninit().assume_init() };
 
+            // For each vector, reduce to the binary vector via computing the random
+            // projection against our hyperplanes.
             for (mem, (ident, qv)) in projections.iter_mut().zip(vectors) {
                 *mem = (*ident, LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&ht, qv));
             }
