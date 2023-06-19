@@ -53,51 +53,23 @@ where
 
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
 /// and utilizing `I` to identify them.
-pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I>
+pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I, ST>
 where
     [(); pow2(NB)]:,
 {
     hyperplane_normals: HyperplaneTiming<NB, T, D>,
-    bin_idx: [Option<usize>; pow2(NB)], // contains the index where the bin begins within `buf`.
+    st: ST,
     buf: [I; N],
+    phantom: std::marker::PhantomData<&'a I>,
 }
 
-impl<'a, const NB: usize, const N: usize, T, const D: usize, I> LSHDB<'a, NB, N, T, D, I>
+impl<'a, const NB: usize, const N: usize, T, const D: usize, I, ST> LSHDB<'a, NB, N, T, D, I, ST>
 where
     Standard: Distribution<T>,
     T: hyperplane::ProjLSH<T, D>,
+    ST: search::Search<usize, std::ops::Range<usize>>,
     [(); pow2(NB)]:,
-    I: Copy,
 {
-    // TODO: Test this behavior.
-    /// Find the start and end of the bin within the `buf` arr.
-    fn bin_range(&self, idx: usize) -> std::ops::Range<usize> {
-        assert!(idx < pow2(NB));
-
-        if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
-            let end_buf_idx = self
-                .bin_idx
-                .iter()
-                .skip(idx + 1) // Iteration begins at `idx + 1`;
-                .find(|&x| x.is_some())
-                .copied()
-                .unwrap_or(Some(N))
-                .unwrap();
-
-            // If there is a `beg_buf_idx`, there is at least a single vector, so the range
-            // end should be different.
-            assert!(*beg_buf_idx < end_buf_idx);
-
-            std::ops::Range {
-                start: *beg_buf_idx,
-                end: end_buf_idx,
-            }
-        } else {
-            // There are no values within this bin.
-            todo!("There were no values within this bin; find another bin with a similar hamming distance...");
-        }
-    }
-
     /// Compute the binary vector representation of `q`.
     fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
         // TODO: Does the compiler complain if this is the case? It should be moved to
@@ -122,71 +94,19 @@ where
         hyperplane::Sign::to_usize(sign_arr)
     }
 
-    // TODO: lshdb that doesn't take the entirety of the vectors at runtime.
-    pub fn new<R: Rng>(
-        rng: &mut R,
-        vectors: &[(I, [T; D]); N],
-        ht: Option<HyperplaneTiming<NB, T, D>>,
-    ) -> Self {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0 && N > 0);
-
-        let ht = ht.unwrap_or_else(|| -> HyperplaneTiming<NB, T, D> {
-            HyperplaneTiming::build_on_init(rng)
-        });
-
-        let build_bin_idx_buf = || -> ([Option<usize>; pow2(NB)], [I; N]) {
-            // TODO: Proper way to initialize `projections`?
-            let mut projections: [(I, usize); N] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-
-            // For each vector, reduce to the binary vector via computing the random
-            // projection against our hyperplanes.
-            for (mem, (ident, qv)) in projections.iter_mut().zip(vectors) {
-                *mem = (*ident, LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&ht, qv));
-            }
-
-            // Sort the projections by bin_idx.
-            projections.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-
-            // For `i` in 0..pow2(NB), find the first index where `i` appears.
-            // NOTE: the current implementation of `find` short-circuits which is what we desire.
-            // TODO: Proper way to initialize `bin_idx`?
-            let mut bin_idx = [None; pow2(NB)];
-            for (i, mem) in bin_idx.iter_mut().enumerate() {
-                match projections
-                    .iter()
-                    .enumerate()
-                    .find(|(_proj_idx, &(_ident, idx))| i == idx)
-                {
-                    Some((proj_idx, _)) => *mem = Some(proj_idx),
-                    None => *mem = None,
-                }
-            }
-
-            // Drop the query vector so that `I` is all that remains.
-            // TODO: Proper way to initialize `buf`?
-            let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-            for (mem, proj) in buf.iter_mut().zip(projections) {
-                *mem = proj.0
-            }
-
-            (bin_idx, buf)
-        };
-
-        let (bin_idx, buf) = build_bin_idx_buf();
+    pub fn new(ht: HyperplaneTiming<NB, T, D>, st: ST, buf: [I; N]) -> Self {
         Self {
             hyperplane_normals: ht,
-            bin_idx,
+            st,
             buf,
+            phantom: std::marker::PhantomData,
         }
     }
 
     /// Find an approximate nearest neigh for an input vector.
     pub fn ann(&'a self, qv: &[T; D]) -> impl Iterator<Item = &'a I> {
-        let idx = LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&self.hyperplane_normals, qv);
-        let range = self.bin_range(idx);
+        let idx = LSHDB::<NB, N, T, D, I, ST>::to_hyperplane_proj(&self.hyperplane_normals, qv);
+        let range = self.st.search(&idx).unwrap();
         // TODO: Is there a way to pass the range into `.iter()` ?
         self.buf.iter().skip(range.start).take(range.end)
     }
@@ -212,23 +132,6 @@ mod tests {
     fn test_pow2() {
         assert_eq!(pow2(2), 4);
         assert_eq!(pow2(4), 16);
-    }
-
-    #[test]
-    fn test_bin_range_one() {
-        const NB: usize = 2;
-        const N: usize = 1;
-        const D: usize = 1;
-
-        let mut rng = rand::thread_rng();
-        let inner_vec = [1.0; D];
-        let outer_vec = [(0u8, inner_vec); N];
-
-        let d = LSHDB::<NB, N, f32, D, u8>::new(&mut rng, &outer_vec, None);
-        let x = LSHDB::<NB, N, f32, D, u8>::to_hyperplane_proj(&d.hyperplane_normals, &inner_vec);
-
-        // When we have a single vector, (start, end) should be (0, 1).
-        assert_eq!(d.bin_range(x), std::ops::Range { start: 0, end: N });
     }
 }
 
@@ -360,4 +263,26 @@ pub mod hyperplane {
             let _: [f32; 4] = random_hyperplane_normal(&mut rng);
         }
     }
+}
+
+mod search {
+
+    pub trait Search<K, V> {
+        fn search(&self, k: &K) -> Option<&V>;
+    }
+
+    pub(super) struct BST<K, V, const N: usize> {
+        _buf: [(K, V); N],
+    }
+
+    impl<K, V, const N: usize> BST<K, V, N> {}
+
+    impl<K, V, const N: usize> Search<K, V> for BST<K, V, N> {
+        fn search(&self, _k: &K) -> Option<&V> {
+            todo!()
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {}
 }
