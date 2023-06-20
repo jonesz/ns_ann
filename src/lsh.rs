@@ -267,19 +267,41 @@ pub mod hyperplane {
 
 mod search {
 
-    pub trait Search<K, V> {
+    pub trait Search<K: Ord, V> {
         fn search(&self, k: &K) -> Option<&V>;
     }
 
     pub(super) struct BST<K, V, const N: usize> {
-        _buf: [(K, V); N],
+        buf: [(K, V, Option<(usize, usize)>); N],
     }
 
     impl<K, V, const N: usize> BST<K, V, N> {}
 
-    impl<K, V, const N: usize> Search<K, V> for BST<K, V, N> {
-        fn search(&self, _k: &K) -> Option<&V> {
-            todo!()
+    impl<K, V, const N: usize> Search<K, V> for BST<K, V, N>
+    where
+        K: Ord,
+    {
+        fn search(&self, k: &K) -> Option<&V> {
+            let mut cur: &(K, V, Option<(usize, usize)>) = self.buf.get(0).unwrap();
+            loop {
+                match cur.0.cmp(k) {
+                    std::cmp::Ordering::Less => {
+                        if let Some((l_child, _)) = cur.2 {
+                            cur = self.buf.get(l_child).unwrap();
+                        } else {
+                            return None;
+                        }
+                    }
+                    std::cmp::Ordering::Greater => {
+                        if let Some((_, r_child)) = cur.2 {
+                            cur = self.buf.get(r_child).unwrap();
+                        } else {
+                            return None;
+                        }
+                    }
+                    std::cmp::Ordering::Equal => return Some(&cur.1),
+                }
+            }
         }
     }
 
