@@ -267,6 +267,44 @@ pub mod hyperplane {
 
 mod search {
 
+    mod naive_bst {
+        pub(super) struct Node<T: Ord> {
+            value: T,
+            left: Option<Box<Node<T>>>,
+            right: Option<Box<Node<T>>>,
+        }
+
+        impl<T: Ord> Node<T> {
+            fn new(x: T) -> Self {
+                Node {
+                    value: x,
+                    left: None,
+                    right: None,
+                }
+            }
+
+            pub fn insert(&mut self, x: T) {
+                match self.value.cmp(&x) {
+                    std::cmp::Ordering::Greater => {
+                        if let Some(child) = &mut self.left {
+                            child.insert(x);
+                        } else {
+                            self.left = Some(Box::new(Node::new(x)));
+                        }
+                    }
+                    std::cmp::Ordering::Less => {
+                        if let Some(child) = &mut self.right {
+                            child.insert(x);
+                        } else {
+                            self.right = Some(Box::new(Node::new(x)));
+                        }
+                    }
+                    std::cmp::Ordering::Equal => return,
+                }
+            }
+        }
+    }
+
     pub trait Search<K: Ord, V> {
         fn search(&self, k: &K) -> Option<&V>;
     }
