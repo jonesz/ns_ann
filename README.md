@@ -1,1 +1,1 @@
-eann_db is an embedded, in-process library for ANNS. eann_db is suitable for `no_std` environments.
+# ns_ann

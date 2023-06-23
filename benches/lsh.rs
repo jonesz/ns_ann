@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use eann_db::lsh::LSHDB;
+use ns_ann::lsh::LSHDB;
 use rand::{rngs::StdRng, Rng, SeedableRng};
 
 fn bench_lsh_ann_f32_on_init(c: &mut Criterion) {

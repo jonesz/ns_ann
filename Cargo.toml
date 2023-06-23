@@ -1,5 +1,5 @@
 [package]
-name = "eann_db"
+name = "ns_ann"
 version = "0.1.0"
 edition = "2021"
 

@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use eann_db::lsh::hyperplane::{self, Sign};
+use ns_ann::lsh::hyperplane::{self, Sign};
 use rand::{Fill, Rng};
 
 const V_DIM_LARGE: usize = 1024;

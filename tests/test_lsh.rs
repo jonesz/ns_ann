@@ -1,6 +1,6 @@
 mod common;
 
-use eann_db::lsh::LSHDB;
+use ns_ann::lsh::LSHDB;
 
 // Number of hyperplanes.
 const NB: usize = 4;
