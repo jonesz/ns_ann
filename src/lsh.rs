@@ -37,8 +37,8 @@ where
 
         HyperplaneTiming::OnInitialization({
             // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            let mut data: [core::mem::MaybeUninit<[T; D]>; NB] =
+                unsafe { core::mem::MaybeUninit::uninit().assume_init() };
 
             // TODO: Should this be a random gaussian vector? A random unit normal?
             for component in &mut data[..] {
@@ -71,7 +71,7 @@ where
 {
     // TODO: Test this behavior.
     /// Find the start and end of the bin within the `buf` arr.
-    fn bin_range(&self, idx: usize) -> std::ops::Range<usize> {
+    fn bin_range(&self, idx: usize) -> core::ops::Range<usize> {
         assert!(idx < pow2(NB));
 
         if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
@@ -88,7 +88,7 @@ where
             // end should be different.
             assert!(*beg_buf_idx < end_buf_idx);
 
-            std::ops::Range {
+            core::ops::Range {
                 start: *beg_buf_idx,
                 end: end_buf_idx,
             }
@@ -139,7 +139,7 @@ where
         let build_bin_idx_buf = || -> ([Option<usize>; pow2(NB)], [I; N]) {
             // TODO: Proper way to initialize `projections`?
             let mut projections: [(I, usize); N] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+                unsafe { core::mem::MaybeUninit::uninit().assume_init() };
 
             // For each vector, reduce to the binary vector via computing the random
             // projection against our hyperplanes.
@@ -167,7 +167,7 @@ where
 
             // Drop the query vector so that `I` is all that remains.
             // TODO: Proper way to initialize `buf`?
-            let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            let mut buf: [I; N] = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
             for (mem, proj) in buf.iter_mut().zip(projections) {
                 *mem = proj.0
             }
@@ -228,7 +228,7 @@ mod tests {
         let x = LSHDB::<NB, N, f32, D, u8>::to_hyperplane_proj(&d.hyperplane_normals, &inner_vec);
 
         // When we have a single vector, (start, end) should be (0, 1).
-        assert_eq!(d.bin_range(x), std::ops::Range { start: 0, end: N });
+        assert_eq!(d.bin_range(x), core::ops::Range { start: 0, end: N });
     }
 }
 
@@ -324,8 +324,8 @@ pub mod hyperplane {
     {
         let buf = {
             // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<T>; D] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
+            let mut data: [core::mem::MaybeUninit<T>; D] =
+                unsafe { core::mem::MaybeUninit::uninit().assume_init() };
             // TODO: Should this be a random gaussian vector? A random unit normal?
             for component in &mut data[..] {
                 component.write(rng.gen::<T>());

@@ -1,4 +1,5 @@
 #![feature(generic_const_exprs)]
+#![no_std]
 
-mod hnsw;
+// mod hnsw;
 pub mod lsh;
