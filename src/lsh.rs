@@ -53,22 +53,14 @@ where
 
 /// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
 /// and utilizing `I` to identify them.
-pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I, ST>
-where
-    [(); pow2(NB)]:,
-{
+pub struct LSHDB<const NB: usize, T, const D: usize> {
     hyperplane_normals: HyperplaneTiming<NB, T, D>,
-    st: ST,
-    buf: [I; N],
-    phantom: std::marker::PhantomData<&'a I>,
 }
 
-impl<'a, const NB: usize, const N: usize, T, const D: usize, I, ST> LSHDB<'a, NB, N, T, D, I, ST>
+impl<const NB: usize, T, const D: usize> LSHDB<NB, T, D>
 where
     Standard: Distribution<T>,
     T: hyperplane::ProjLSH<T, D>,
-    ST: search::Search<usize, std::ops::Range<usize>>,
-    [(); pow2(NB)]:,
 {
     /// Compute the binary vector representation of `q`.
     fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
@@ -94,27 +86,10 @@ where
         hyperplane::Sign::to_usize(sign_arr)
     }
 
-    pub fn new(ht: HyperplaneTiming<NB, T, D>, st: ST, buf: [I; N]) -> Self {
+    pub fn new(ht: HyperplaneTiming<NB, T, D>) -> Self {
         Self {
             hyperplane_normals: ht,
-            st,
-            buf,
-            phantom: std::marker::PhantomData,
         }
-    }
-
-    /// Find an approximate nearest neigh for an input vector.
-    pub fn ann(&'a self, qv: &[T; D]) -> impl Iterator<Item = &'a I> {
-        let idx = LSHDB::<NB, N, T, D, I, ST>::to_hyperplane_proj(&self.hyperplane_normals, qv);
-        let range = self.st.search(&idx).unwrap();
-        // TODO: Is there a way to pass the range into `.iter()` ?
-        self.buf.iter().skip(range.start).take(range.end)
-    }
-
-    /// Find an approximate nearest neighbor for an input vector. NOTE: this will
-    /// return a random vector from a *single bin*.
-    pub fn ann_rand<R: Rng>(&'a self, rng: &mut R, qv: &[T; D]) -> Option<&'a I> {
-        self.ann(qv).choose(rng)
     }
 }
 
