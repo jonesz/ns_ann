@@ -1,123 +1,55 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
-use rand::{
-    distributions::{Distribution, Standard},
-    rngs::SmallRng,
-    seq::IteratorRandom,
-    Rng, SeedableRng,
-};
+use super::distribution::RandomUnitVector;
+use rand::Rng;
 
-/// Hamming distance between two values.
-fn hamming(a: usize, b: usize) -> u32 {
-    (a ^ b).count_ones()
+pub type Seed = [u8; 12];
+
+/// Given the output of a projection: f(q, h), determine how to build an
+/// an identifier.
+pub enum IdentifierMethod<const N: usize> {
+    /// Consider the output of f(q, h) as the next index to go to within
+    /// a balanced binary tree.
+    Tree([usize; N]),
+    /// Consider the output of f(q, h) as a single bit; concatenate all N
+    /// bits into a usize.
+    Binary,
 }
 
-/// 2^n.
-pub const fn pow2(n: usize) -> usize {
-    2usize.pow(n as u32)
+/// A Method on how to construct or retrieve a hyperplane `h` to compute
+/// f(q, h).
+pub enum HyperplaneMethod<const N: usize, T, const D: usize> {
+    Precomputed([[T; D]; N]),
+    /// Generate each hyperplane from an RNG initialized from a single seed.
+    OnDemandSingle(Seed),
+    /// Generate each specific hyperplane from an RNG intitialized from a specific seed.
+    OnDemandMultiple([Seed; N]),
 }
 
-// Given `N` vectors, we convert each one into a binary vector via projection onto the set of
-// random hyperplanes. With those binary vectors, we sort them into groups and place them
-// within a contigious array. We note the beginning of each group within `bin_idx`, which
-// indicates the index to begin at within `buf`.
-
-pub enum HyperplaneTiming<const NB: usize, T, const D: usize> {
-    OnInitialization([[T; D]; NB]),
-    OnDemand(u64),
-}
-
-impl<const NB: usize, T, const D: usize> HyperplaneTiming<NB, T, D>
+impl<const N: usize, T, const D: usize> HyperplaneMethod<N, T, D>
 where
-    Standard: Distribution<T>,
+    T: RandomUnitVector<D>,
 {
-    pub fn build_on_init<R: Rng>(rng: &mut R) -> Self {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0);
-
-        HyperplaneTiming::OnInitialization({
-            // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-
-            // TODO: Should this be a random gaussian vector? A random unit normal?
-            for component in &mut data[..] {
-                let hn = hyperplane::random_hyperplane_normal(rng);
-                component.write(hn);
-            }
-
-            unsafe { data.as_ptr().cast::<[[T; D]; NB]>().read() }
-        })
+    pub fn precompute_random_unit_vector<R: Rng>(rng: &mut R) -> Self {
+        todo!();
     }
 }
 
-/// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
-/// and utilizing `I` to identify them.
-pub struct LSHDB<const NB: usize, T, const D: usize> {
-    hyperplane_normals: HyperplaneTiming<NB, T, D>,
-}
+pub struct RandomProjection<const N: usize, T, const D: usize>(
+    IdentifierMethod<N>,
+    HyperplaneMethod<N, T, D>,
+);
 
-impl<const NB: usize, T, const D: usize> LSHDB<NB, T, D>
+impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
-    Standard: Distribution<T>,
-    T: hyperplane::ProjLSH<T, D>,
+    T: hyperplane::Projection<T, D>,
 {
-    /// Compute the binary vector representation of `q`.
-    fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0);
-        let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
-        match method {
-            HyperplaneTiming::OnDemand(seed) => {
-                let mut rng = SmallRng::seed_from_u64(*seed);
-                for mem in sign_arr.iter_mut() {
-                    let hn = hyperplane::random_hyperplane_normal(&mut rng);
-                    *mem = T::proj(q, &hn);
-                }
-            }
-            HyperplaneTiming::OnInitialization(hyperplanes) => {
-                for (mem, hn) in sign_arr.iter_mut().zip(hyperplanes) {
-                    *mem = T::proj(q, &hn);
-                }
-            }
-        };
-
-        hyperplane::Sign::to_usize(sign_arr)
-    }
-
-    pub fn new(ht: HyperplaneTiming<NB, T, D>) -> Self {
-        Self {
-            hyperplane_normals: ht,
-        }
+    /// Return the bin from which to select an ANN.
+    pub fn bin(&self, qv: &[T; D]) -> usize {
+        todo!();
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hamming() {
-        assert_eq!(hamming(1, 1), 0);
-        assert_eq!(hamming(2, 0), 1);
-    }
-
-    #[test]
-    fn test_pow2() {
-        assert_eq!(pow2(2), 4);
-        assert_eq!(pow2(4), 16);
-    }
-}
-
-// TODO: This should be hidden private and exposed as pub when a cfg feature like
-// 'benchmark' is enabled.
-pub mod hyperplane {
-    use rand::{
-        distributions::{Distribution, Standard},
-        Rng,
-    };
-
+mod hyperplane {
     #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
         #[default]
@@ -127,10 +59,10 @@ pub mod hyperplane {
 
     impl Sign {
         // Convert an arr of `Sign` into a single usize.
-        pub fn to_usize<const L: usize>(sign_arr: [Sign; L]) -> usize {
+        pub fn to_usize<const N: usize>(sign_arr: [Sign; N]) -> usize {
             // TODO: There's const-generic type-system magic to force this check
             // at compile time.
-            assert!(L <= usize::BITS.try_into().unwrap());
+            assert!(N <= usize::BITS.try_into().unwrap());
             sign_arr
                 .into_iter()
                 .enumerate()
@@ -169,12 +101,12 @@ pub mod hyperplane {
         }
     }
 
-    pub trait ProjLSH<T, const D: usize> {
-        fn proj(a: &[T; D], b: &[T; D]) -> Sign;
+    pub trait Projection<T, const D: usize> {
+        fn project(a: &[T; D], b: &[T; D]) -> Sign;
     }
 
-    impl<const D: usize> ProjLSH<f32, D> for f32 {
-        fn proj(a: &[f32; D], b: &[f32; D]) -> Sign {
+    impl<const D: usize> Projection<f32, D> for f32 {
+        fn project(a: &[f32; D], b: &[f32; D]) -> Sign {
             (0..D)
                 .fold(0.0f32, |acc, idx| {
                     acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
@@ -183,35 +115,14 @@ pub mod hyperplane {
         }
     }
 
-    impl<const D: usize> ProjLSH<f64, D> for f64 {
-        fn proj(a: &[f64; D], b: &[f64; D]) -> Sign {
+    impl<const D: usize> Projection<f64, D> for f64 {
+        fn project(a: &[f64; D], b: &[f64; D]) -> Sign {
             (0..D)
                 .fold(0.0f64, |acc, idx| {
                     acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
                 })
                 .into()
         }
-    }
-
-    // TODO: This should be hidden private and exposed as pub when a cfg feature like
-    // 'benchmark' is enabled; should be pub(super).
-    /// Create a normal for a random hyperplane.
-    pub fn random_hyperplane_normal<T, const D: usize, R: Rng>(rng: &mut R) -> [T; D]
-    where
-        Standard: Distribution<T>,
-    {
-        let buf = {
-            // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<T>; D] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-            // TODO: Should this be a random gaussian vector? A random unit normal?
-            for component in &mut data[..] {
-                component.write(rng.gen::<T>());
-            }
-            unsafe { data.as_ptr().cast::<[T; D]>().read() }
-        };
-
-        buf
     }
 
     #[cfg(test)]
@@ -231,93 +142,5 @@ pub mod hyperplane {
                 0b11001
             );
         }
-
-        #[test]
-        fn build_random_hyperplane_normal() {
-            let mut rng = rand::thread_rng();
-            let _: [f32; 4] = random_hyperplane_normal(&mut rng);
-        }
     }
-}
-
-mod search {
-
-    mod naive_bst {
-        pub(super) struct Node<T: Ord> {
-            value: T,
-            left: Option<Box<Node<T>>>,
-            right: Option<Box<Node<T>>>,
-        }
-
-        impl<T: Ord> Node<T> {
-            fn new(x: T) -> Self {
-                Node {
-                    value: x,
-                    left: None,
-                    right: None,
-                }
-            }
-
-            pub fn insert(&mut self, x: T) {
-                match self.value.cmp(&x) {
-                    std::cmp::Ordering::Greater => {
-                        if let Some(child) = &mut self.left {
-                            child.insert(x);
-                        } else {
-                            self.left = Some(Box::new(Node::new(x)));
-                        }
-                    }
-                    std::cmp::Ordering::Less => {
-                        if let Some(child) = &mut self.right {
-                            child.insert(x);
-                        } else {
-                            self.right = Some(Box::new(Node::new(x)));
-                        }
-                    }
-                    std::cmp::Ordering::Equal => return,
-                }
-            }
-        }
-    }
-
-    pub trait Search<K: Ord, V> {
-        fn search(&self, k: &K) -> Option<&V>;
-    }
-
-    pub(super) struct BST<K, V, const N: usize> {
-        buf: [(K, V, Option<(usize, usize)>); N],
-    }
-
-    impl<K, V, const N: usize> BST<K, V, N> {}
-
-    impl<K, V, const N: usize> Search<K, V> for BST<K, V, N>
-    where
-        K: Ord,
-    {
-        fn search(&self, k: &K) -> Option<&V> {
-            let mut cur: &(K, V, Option<(usize, usize)>) = self.buf.get(0).unwrap();
-            loop {
-                match cur.0.cmp(k) {
-                    std::cmp::Ordering::Less => {
-                        if let Some((l_child, _)) = cur.2 {
-                            cur = self.buf.get(l_child).unwrap();
-                        } else {
-                            return None;
-                        }
-                    }
-                    std::cmp::Ordering::Greater => {
-                        if let Some((_, r_child)) = cur.2 {
-                            cur = self.buf.get(r_child).unwrap();
-                        } else {
-                            return None;
-                        }
-                    }
-                    std::cmp::Ordering::Equal => return Some(&cur.1),
-                }
-            }
-        }
-    }
-
-    #[cfg(test)]
-    mod tests {}
 }
