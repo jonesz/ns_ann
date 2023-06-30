@@ -6,13 +6,13 @@ pub type Seed = [u8; 12];
 
 /// Given the output of a projection: f(q, h), determine how to build an
 /// an identifier.
-pub enum IdentifierMethod<const N: usize> {
+pub enum IdentifierMethod {
     /// Consider the output of f(q, h) as the next index to go to within
     /// a balanced binary tree.
-    Tree([usize; N]),
+    Tree,
     /// Consider the output of f(q, h) as a single bit; concatenate all N
     /// bits into a usize.
-    Binary,
+    BinaryVec,
 }
 
 /// A Method on how to construct or retrieve a hyperplane `h` to compute
@@ -35,7 +35,7 @@ where
 }
 
 pub struct RandomProjection<const N: usize, T, const D: usize>(
-    IdentifierMethod<N>,
+    IdentifierMethod,
     HyperplaneMethod<N, T, D>,
 );
 
