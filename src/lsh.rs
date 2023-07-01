@@ -72,9 +72,9 @@ mod hyperplane {
         }
     }
 
-    impl Into<usize> for Sign {
-        fn into(self) -> usize {
-            match self {
+    impl From<Sign> for usize {
+        fn from(val: Sign) -> usize {
+            match val {
                 Sign::Positive => 1,
                 Sign::Negative => 0,
             }
