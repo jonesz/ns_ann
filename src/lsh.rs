@@ -75,6 +75,15 @@ where
     }
 }
 
+impl<'a, const N: usize, T, const D: usize> IntoIterator for HyperplaneMethod<N, T, D> {
+    type Item = &'a [T; D];
+    type IntoIter = HyperplaneMethodIterator<'a, N, T, D>;
+
+    fn into_iter() -> Self::IntoIter {
+        todo!();
+    }
+}
+
 pub struct RandomProjection<const N: usize, T, const D: usize>(
     IdentifierMethod,
     HyperplaneMethod<N, T, D>,
@@ -84,6 +93,15 @@ impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
     T: hyperplane::Projection<T, D>,
 {
+    fn bin_binaryvec(&self, qv: &[T; D]) -> usize {
+        let arr = [Sign::default(); N];
+        for (mem, hp) in arr.iter_mut().zip(HyperplaneMethod.into_iter()) {
+            *mem = T::project(qv, hp);
+        }
+
+        hyperplane::Sign::to_usize(arr)
+    }
+
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, qv: &[T; D]) -> usize {
         todo!();
