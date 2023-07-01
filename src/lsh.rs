@@ -27,10 +27,15 @@ pub enum HyperplaneMethod<const N: usize, T, const D: usize> {
 
 impl<const N: usize, T, const D: usize> HyperplaneMethod<N, T, D>
 where
-    T: RandomUnitVector<D>,
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
     pub fn precompute_random_unit_vector<R: Rng>(rng: &mut R) -> Self {
-        todo!();
+        let mut hyperplanes = [[T::default(); D]; N];
+        for mem in hyperplanes.iter_mut() {
+            *mem = T::sample(rng);
+        }
+
+        HyperplaneMethod::Precomputed(hyperplanes)
     }
 }
 
