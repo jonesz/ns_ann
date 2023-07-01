@@ -39,6 +39,42 @@ where
     }
 }
 
+/// An iterator over a set of hyperplanes.
+enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize, R: Rng> {
+    Precomputed(&'a [[T; D]; N], usize),
+    OnDemandSingle(R),
+    OnDemandMultiple(&'a [Seed; N], usize),
+}
+
+impl<'a, const N: usize, T, const D: usize, R: Rng> Iterator
+    for HyperplaneMethodIterator<'a, N, T, D, R>
+where
+    T: RandomUnitVector<D, Output = [T; D]>,
+{
+    type Item = &'a [T; D];
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            HyperplaneMethodIterator::Precomputed(h, ctr) => {
+                let item = h.get(*ctr);
+                *ctr += 1;
+                return item;
+            }
+            HyperplaneMethodIterator::OnDemandSingle(rng) => {
+                // TODO: This is a temp value, cannot produce a reference to it. What to do...
+                // Some(T::sample(rng))
+                todo!();
+            }
+            HyperplaneMethodIterator::OnDemandMultiple(seeds, ctr) => {
+                let item = seeds.get(*ctr);
+                *ctr += 1;
+
+                // TODO: Initialize the RNG with this seed, then compute.
+                todo!();
+            }
+        }
+    }
+}
+
 pub struct RandomProjection<const N: usize, T, const D: usize>(
     IdentifierMethod,
     HyperplaneMethod<N, T, D>,
