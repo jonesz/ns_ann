@@ -122,6 +122,21 @@ mod tests {
             assert_eq!(&x, arr.get(idx).unwrap());
         }
     }
+
+    #[test]
+    fn test_ondemand_iterator() {
+        let hp = HyperplaneMethod::<2, f32, 5>::OnDemand(0u64);
+        let mut iter = hp.into_iter().enumerate();
+        let x = iter.next();
+        let y = iter.next();
+
+        // Both (x, y) should be vectors.
+        assert!(x.is_some() && y.is_some());
+        // Only two values should have been returned from the iterator.
+        assert!(iter.next().is_none());
+        // The two values *shouldn't* (they could, but the universe has likely ended) the same.
+        assert_ne!(x, y);
+    }
 }
 
 mod hyperplane {
