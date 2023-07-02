@@ -43,7 +43,7 @@ where
 enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize, R: Rng> {
     Precomputed(&'a [[T; D]; N], usize),
     OnDemandSingle(R),
-    OnDemandMultiple(&'a [Seed; N], usize),
+    OnDemandMultiple(R, &'a [Seed; N], usize),
 }
 
 impl<'a, const N: usize, T, const D: usize, R: Rng> Iterator
