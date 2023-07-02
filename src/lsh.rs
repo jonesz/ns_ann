@@ -44,12 +44,12 @@ where
 // is stored on the function call stack rather than say, 'static.
 // TODO: Can we coalesce the longer lifetime 'a to the shorter lifetime 'b?. Or does this enum
 // need to be split and we utilize a trait with a set of structs?
-pub enum HyperplaneMethodIterator<'a, T, const D: usize> {
-    PrecomputedIterator(&'a [[T; D]], usize),
-    OnDemandIterator(rand::rngs::SmallRng),
+pub enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize> {
+    PrecomputedIterator(&'a [[T; D]; N], usize),
+    OnDemandIterator(rand::rngs::SmallRng, usize),
 }
 
-impl<'a, T, const D: usize> Iterator for HyperplaneMethodIterator<'a, T, D>
+impl<'a, const N: usize, T, const D: usize> Iterator for HyperplaneMethodIterator<'a, N, T, D>
 where
     T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
@@ -64,7 +64,14 @@ where
                     })
                     .cloned()
             }
-            HyperplaneMethodIterator::OnDemandIterator(rng) => Some(T::sample(rng)),
+            HyperplaneMethodIterator::OnDemandIterator(rng, ctr) => {
+                if *ctr < N {
+                    *ctr += 1;
+                    Some(T::sample(rng))
+                } else {
+                    None
+                }
+            }
         }
     }
 }
@@ -75,7 +82,7 @@ where
     T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
     type Item = [T; D];
-    type IntoIter = HyperplaneMethodIterator<'a, T, D>;
+    type IntoIter = HyperplaneMethodIterator<'a, N, T, D>;
 
     fn into_iter(self) -> Self::IntoIter {
         match self {
@@ -84,7 +91,7 @@ where
             }
             HyperplaneMethod::OnDemand(seed) => {
                 use rand::{rngs::SmallRng, SeedableRng};
-                HyperplaneMethodIterator::OnDemandIterator(SmallRng::seed_from_u64(*seed))
+                HyperplaneMethodIterator::OnDemandIterator(SmallRng::seed_from_u64(*seed), 0usize)
             }
         }
     }
