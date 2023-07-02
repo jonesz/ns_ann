@@ -1,6 +1,6 @@
 //! Generate random unit vectors to serve as hyperplane normals.
-use rand::{Fill, Rng};
-use rand_distr::{Distribution, StandardNormal};
+use rand::Rng;
+use rand_distr::StandardNormal;
 
 pub trait RandomUnitVector<const D: usize> {
     type Output;
@@ -34,7 +34,7 @@ impl<const D: usize> RandomUnitVector<D> for f32 {
         assert!(out_mag > 0.0_f32);
 
         for mem in out.iter_mut() {
-            *mem = *mem / out_mag;
+            *mem /= out_mag;
         }
 
         out

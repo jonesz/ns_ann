@@ -58,7 +58,7 @@ where
         match self {
             HyperplaneMethodIterator::PrecomputedIterator(hyperplane_slice, ctr) => {
                 let item = hyperplane_slice.get(*ctr).cloned();
-                *ctr = *ctr + 1;
+                *ctr += 1;
                 item
             }
             HyperplaneMethodIterator::OnDemandIterator(rng, ctr) => {
@@ -87,7 +87,6 @@ where
                 HyperplaneMethodIterator::PrecomputedIterator(x, 0usize)
             }
             HyperplaneMethod::OnDemand(seed) => {
-                use rand::{rngs::SmallRng, SeedableRng};
                 HyperplaneMethodIterator::OnDemandIterator(SmallRng::seed_from_u64(*seed), 0usize)
             }
         }
