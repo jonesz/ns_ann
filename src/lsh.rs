@@ -1,8 +1,9 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 use super::distribution::RandomUnitVector;
-use rand::Rng;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
-pub type Seed = [u8; 12];
+// We utilize `seed_from_u64` within `SeedableRng`.
+pub type Seed = u64;
 
 /// Given the output of a projection: f(q, h), determine how to build an
 /// an identifier.
@@ -20,15 +21,14 @@ pub enum IdentifierMethod {
 pub enum HyperplaneMethod<const N: usize, T, const D: usize> {
     Precomputed([[T; D]; N]),
     /// Generate each hyperplane from an RNG initialized from a single seed.
-    OnDemandSingle(Seed),
-    /// Generate each specific hyperplane from an RNG intitialized from a specific seed.
-    OnDemandMultiple([Seed; N]),
+    OnDemand(Seed),
 }
 
 impl<const N: usize, T, const D: usize> HyperplaneMethod<N, T, D>
 where
     T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
+    /// Produce a new `HyperplaneMethod` composed of precomputed hyperplanes.
     pub fn precompute_random_unit_vector<R: Rng>(rng: &mut R) -> Self {
         let mut hyperplanes = [[T::default(); D]; N];
         for mem in hyperplanes.iter_mut() {
@@ -39,48 +39,54 @@ where
     }
 }
 
-/// An iterator over a set of hyperplanes.
-enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize, R: Rng> {
-    Precomputed(&'a [[T; D]; N], usize),
-    OnDemandSingle(R),
-    OnDemandMultiple(R, &'a [Seed; N], usize),
+// NOTE: This iterator requires a *CLONE*; even though `Precomputed` could be accomplished
+// without a clone, the lifetime 'a can't match the lifetime 'b of the `OnDemandIterator` (which)
+// is stored on the function call stack rather than say, 'static.
+// TODO: Can we coalesce the longer lifetime 'a to the shorter lifetime 'b?. Or does this enum
+// need to be split and we utilize a trait with a set of structs?
+pub enum HyperplaneMethodIterator<'a, T, const D: usize> {
+    PrecomputedIterator(&'a [[T; D]], usize),
+    OnDemandIterator(rand::rngs::SmallRng),
 }
 
-impl<'a, const N: usize, T, const D: usize, R: Rng> Iterator
-    for HyperplaneMethodIterator<'a, N, T, D, R>
+impl<'a, T, const D: usize> Iterator for HyperplaneMethodIterator<'a, T, D>
 where
-    T: RandomUnitVector<D, Output = [T; D]>,
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
-    type Item = &'a [T; D];
+    type Item = [T; D];
     fn next(&mut self) -> Option<Self::Item> {
         match self {
-            HyperplaneMethodIterator::Precomputed(h, ctr) => {
-                let item = h.get(*ctr);
-                *ctr += 1;
-                return item;
+            HyperplaneMethodIterator::PrecomputedIterator(hyperplane_slice, ctr) => {
+                hyperplane_slice
+                    .get({
+                        *ctr += 1;
+                        *ctr
+                    })
+                    .cloned()
             }
-            HyperplaneMethodIterator::OnDemandSingle(rng) => {
-                // TODO: This is a temp value, cannot produce a reference to it. What to do...
-                // Some(T::sample(rng))
-                todo!();
-            }
-            HyperplaneMethodIterator::OnDemandMultiple(seeds, ctr) => {
-                let item = seeds.get(*ctr);
-                *ctr += 1;
-
-                // TODO: Initialize the RNG with this seed, then compute.
-                todo!();
-            }
+            HyperplaneMethodIterator::OnDemandIterator(rng) => Some(T::sample(rng)),
         }
     }
 }
 
-impl<'a, const N: usize, T, const D: usize> IntoIterator for HyperplaneMethod<N, T, D> {
-    type Item = &'a [T; D];
-    type IntoIter = HyperplaneMethodIterator<'a, N, T, D>;
+// NOTE: This iterator produces values via *CLONE*.
+impl<'a, const N: usize, T, const D: usize> IntoIterator for &'a HyperplaneMethod<N, T, D>
+where
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
+{
+    type Item = [T; D];
+    type IntoIter = HyperplaneMethodIterator<'a, T, D>;
 
-    fn into_iter() -> Self::IntoIter {
-        todo!();
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            HyperplaneMethod::Precomputed(x) => {
+                HyperplaneMethodIterator::PrecomputedIterator(x, 0usize)
+            }
+            HyperplaneMethod::OnDemand(seed) => {
+                use rand::{rngs::SmallRng, SeedableRng};
+                HyperplaneMethodIterator::OnDemandIterator(SmallRng::seed_from_u64(*seed))
+            }
+        }
     }
 }
 
@@ -93,15 +99,6 @@ impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
     T: hyperplane::Projection<T, D>,
 {
-    fn bin_binaryvec(&self, qv: &[T; D]) -> usize {
-        let arr = [Sign::default(); N];
-        for (mem, hp) in arr.iter_mut().zip(HyperplaneMethod.into_iter()) {
-            *mem = T::project(qv, hp);
-        }
-
-        hyperplane::Sign::to_usize(arr)
-    }
-
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, qv: &[T; D]) -> usize {
         todo!();
