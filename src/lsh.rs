@@ -57,12 +57,9 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             HyperplaneMethodIterator::PrecomputedIterator(hyperplane_slice, ctr) => {
-                hyperplane_slice
-                    .get({
-                        *ctr += 1;
-                        *ctr
-                    })
-                    .cloned()
+                let item = hyperplane_slice.get(*ctr).cloned();
+                *ctr = *ctr + 1;
+                item
             }
             HyperplaneMethodIterator::OnDemandIterator(rng, ctr) => {
                 if *ctr < N {
@@ -109,6 +106,21 @@ where
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, qv: &[T; D]) -> usize {
         todo!();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_precomputed_iterator() {
+        let arr = [[1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 6.5, 7.5]];
+
+        let hp = HyperplaneMethod::Precomputed(arr);
+        for (idx, x) in hp.into_iter().enumerate() {
+            assert_eq!(&x, arr.get(idx).unwrap());
+        }
     }
 }
 
