@@ -102,6 +102,20 @@ impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
     T: hyperplane::Projection<T, D>,
 {
+    fn tree(iter: impl Iterator<Item = [T; D]>) -> usize {
+        todo!();
+    }
+
+    fn binvec(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
+        // TODO: MaybeUninit this?
+        let mut arr = [hyperplane::Sign::default(); N];
+        for (mem, hp) in arr.iter_mut().zip(iter) {
+            *mem = T::project(qv, &hp);
+        }
+
+        hyperplane::Sign::to_usize(arr)
+    }
+
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, qv: &[T; D]) -> usize {
         todo!();
