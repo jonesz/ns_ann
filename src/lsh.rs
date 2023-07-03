@@ -1,200 +1,148 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
-use rand::{
-    distributions::{Distribution, Standard},
-    rngs::SmallRng,
-    seq::IteratorRandom,
-    Rng, SeedableRng,
-};
+use super::distribution::RandomUnitVector;
+use rand::{rngs::SmallRng, Rng, SeedableRng};
 
-/// Hamming distance between two values.
-fn hamming(a: usize, b: usize) -> u32 {
-    (a ^ b).count_ones()
+// We utilize `seed_from_u64` within `SeedableRng`.
+pub type Seed = u64;
+
+/// Given the output of a projection: f(q, h), determine how to build an
+/// an identifier.
+pub enum IdentifierMethod {
+    /// Consider the output of f(q, h) as the next index to go to within
+    /// a balanced binary tree.
+    Tree,
+    /// Consider the output of f(q, h) as a single bit; concatenate all N
+    /// bits into a usize.
+    BinaryVec,
 }
 
-/// 2^n.
-pub const fn pow2(n: usize) -> usize {
-    2usize.pow(n as u32)
+/// A Method on how to construct or retrieve a hyperplane `h` to compute
+/// f(q, h).
+pub enum HyperplaneMethod<const N: usize, T, const D: usize> {
+    Precomputed([[T; D]; N]),
+    /// Generate each hyperplane from an RNG initialized from a single seed.
+    OnDemand(Seed),
 }
 
-// Given `N` vectors, we convert each one into a binary vector via projection onto the set of
-// random hyperplanes. With those binary vectors, we sort them into groups and place them
-// within a contigious array. We note the beginning of each group within `bin_idx`, which
-// indicates the index to begin at within `buf`.
-
-pub enum HyperplaneTiming<const NB: usize, T, const D: usize> {
-    OnInitialization([[T; D]; NB]),
-    OnDemand(u64),
-}
-
-impl<const NB: usize, T, const D: usize> HyperplaneTiming<NB, T, D>
+impl<const N: usize, T, const D: usize> HyperplaneMethod<N, T, D>
 where
-    Standard: Distribution<T>,
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
-    pub fn build_on_init<R: Rng>(rng: &mut R) -> Self {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0);
+    /// Produce a new `HyperplaneMethod` composed of precomputed hyperplanes.
+    pub fn precompute_random_unit_vector<R: Rng>(rng: &mut R) -> Self {
+        let mut hyperplanes = [[T::default(); D]; N];
+        for mem in hyperplanes.iter_mut() {
+            *mem = T::sample(rng);
+        }
 
-        HyperplaneTiming::OnInitialization({
-            // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<[T; D]>; NB] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-
-            // TODO: Should this be a random gaussian vector? A random unit normal?
-            for component in &mut data[..] {
-                let hn = hyperplane::random_hyperplane_normal(rng);
-                component.write(hn);
-            }
-
-            unsafe { data.as_ptr().cast::<[[T; D]; NB]>().read() }
-        })
+        HyperplaneMethod::Precomputed(hyperplanes)
     }
 }
 
-/// An LSH structure containing `NB` random hyperplanes, `N` vectors of `T` type and `D` dimension,
-/// and utilizing `I` to identify them.
-pub struct LSHDB<'a, const NB: usize, const N: usize, T, const D: usize, I>
-where
-    [(); pow2(NB)]:,
-{
-    hyperplane_normals: HyperplaneTiming<NB, T, D>,
-    bin_idx: [Option<usize>; pow2(NB)], // contains the index where the bin begins within `buf`.
-    buf: [I; N],
+// NOTE: This iterator requires a *CLONE*; even though `Precomputed` could be accomplished
+// without a clone, the lifetime 'a can't match the lifetime 'b of the `OnDemandIterator` (which)
+// is stored on the function call stack rather than say, 'static.
+// TODO: Can we coalesce the longer lifetime 'a to the shorter lifetime 'b?. Or does this enum
+// need to be split and we utilize a trait with a set of structs?
+pub enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize> {
+    PrecomputedIterator(&'a [[T; D]; N], usize),
+    OnDemandIterator(rand::rngs::SmallRng, usize),
 }
 
-impl<'a, const NB: usize, const N: usize, T, const D: usize, I> LSHDB<'a, NB, N, T, D, I>
+impl<'a, const N: usize, T, const D: usize> Iterator for HyperplaneMethodIterator<'a, N, T, D>
 where
-    Standard: Distribution<T>,
-    T: hyperplane::ProjLSH<T, D>,
-    [(); pow2(NB)]:,
-    I: Copy,
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
-    // TODO: Test this behavior.
-    /// Find the start and end of the bin within the `buf` arr.
-    fn bin_range(&self, idx: usize) -> std::ops::Range<usize> {
-        assert!(idx < pow2(NB));
-
-        if let Some(beg_buf_idx) = self.bin_idx.get(idx).unwrap() {
-            let end_buf_idx = self
-                .bin_idx
-                .iter()
-                .skip(idx + 1) // Iteration begins at `idx + 1`;
-                .find(|&x| x.is_some())
-                .copied()
-                .unwrap_or(Some(N))
-                .unwrap();
-
-            // If there is a `beg_buf_idx`, there is at least a single vector, so the range
-            // end should be different.
-            assert!(*beg_buf_idx < end_buf_idx);
-
-            std::ops::Range {
-                start: *beg_buf_idx,
-                end: end_buf_idx,
+    type Item = [T; D];
+    fn next(&mut self) -> Option<Self::Item> {
+        match self {
+            HyperplaneMethodIterator::PrecomputedIterator(hyperplane_slice, ctr) => {
+                let item = hyperplane_slice.get(*ctr).cloned();
+                *ctr += 1;
+                item
             }
-        } else {
-            // There are no values within this bin.
-            todo!("There were no values within this bin; find another bin with a similar hamming distance...");
+            HyperplaneMethodIterator::OnDemandIterator(rng, ctr) => {
+                if *ctr < N {
+                    *ctr += 1;
+                    Some(T::sample(rng))
+                } else {
+                    None
+                }
+            }
         }
     }
+}
 
-    /// Compute the binary vector representation of `q`.
-    fn to_hyperplane_proj(method: &HyperplaneTiming<NB, T, D>, q: &[T; D]) -> usize {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0);
-        let mut sign_arr: [hyperplane::Sign; NB] = [hyperplane::Sign::default(); NB]; // TODO: This could be MaybeUninit initialized.
-        match method {
-            HyperplaneTiming::OnDemand(seed) => {
-                let mut rng = SmallRng::seed_from_u64(*seed);
-                for mem in sign_arr.iter_mut() {
-                    let hn = hyperplane::random_hyperplane_normal(&mut rng);
-                    *mem = T::proj(q, &hn);
-                }
+// NOTE: This iterator produces values via *CLONE*.
+impl<'a, const N: usize, T, const D: usize> IntoIterator for &'a HyperplaneMethod<N, T, D>
+where
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
+{
+    type Item = [T; D];
+    type IntoIter = HyperplaneMethodIterator<'a, N, T, D>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        match self {
+            HyperplaneMethod::Precomputed(x) => {
+                HyperplaneMethodIterator::PrecomputedIterator(x, 0usize)
             }
-            HyperplaneTiming::OnInitialization(hyperplanes) => {
-                for (mem, hn) in sign_arr.iter_mut().zip(hyperplanes) {
-                    *mem = T::proj(q, &hn);
-                }
+            HyperplaneMethod::OnDemand(seed) => {
+                HyperplaneMethodIterator::OnDemandIterator(SmallRng::seed_from_u64(*seed), 0usize)
             }
-        };
-
-        hyperplane::Sign::to_usize(sign_arr)
-    }
-
-    // TODO: lshdb that doesn't take the entirety of the vectors at runtime.
-    pub fn new<R: Rng>(
-        rng: &mut R,
-        vectors: &[(I, [T; D]); N],
-        ht: Option<HyperplaneTiming<NB, T, D>>,
-    ) -> Self {
-        // TODO: Does the compiler complain if this is the case? It should be moved to
-        // type-system const-generic magic.
-        assert!(NB > 0 && D > 0 && N > 0);
-
-        let ht = ht.unwrap_or_else(|| -> HyperplaneTiming<NB, T, D> {
-            HyperplaneTiming::build_on_init(rng)
-        });
-
-        let build_bin_idx_buf = || -> ([Option<usize>; pow2(NB)], [I; N]) {
-            // TODO: Proper way to initialize `projections`?
-            let mut projections: [(I, usize); N] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-
-            // For each vector, reduce to the binary vector via computing the random
-            // projection against our hyperplanes.
-            for (mem, (ident, qv)) in projections.iter_mut().zip(vectors) {
-                *mem = (*ident, LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&ht, qv));
-            }
-
-            // Sort the projections by bin_idx.
-            projections.sort_unstable_by(|a, b| a.1.cmp(&b.1));
-
-            // For `i` in 0..pow2(NB), find the first index where `i` appears.
-            // NOTE: the current implementation of `find` short-circuits which is what we desire.
-            // TODO: Proper way to initialize `bin_idx`?
-            let mut bin_idx = [None; pow2(NB)];
-            for (i, mem) in bin_idx.iter_mut().enumerate() {
-                match projections
-                    .iter()
-                    .enumerate()
-                    .find(|(_proj_idx, &(_ident, idx))| i == idx)
-                {
-                    Some((proj_idx, _)) => *mem = Some(proj_idx),
-                    None => *mem = None,
-                }
-            }
-
-            // Drop the query vector so that `I` is all that remains.
-            // TODO: Proper way to initialize `buf`?
-            let mut buf: [I; N] = unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-            for (mem, proj) in buf.iter_mut().zip(projections) {
-                *mem = proj.0
-            }
-
-            (bin_idx, buf)
-        };
-
-        let (bin_idx, buf) = build_bin_idx_buf();
-        Self {
-            hyperplane_normals: ht,
-            bin_idx,
-            buf,
         }
     }
+}
 
-    /// Find an approximate nearest neigh for an input vector.
-    pub fn ann(&'a self, qv: &[T; D]) -> impl Iterator<Item = &'a I> {
-        let idx = LSHDB::<NB, N, T, D, I>::to_hyperplane_proj(&self.hyperplane_normals, qv);
-        let range = self.bin_range(idx);
-        // TODO: Is there a way to pass the range into `.iter()` ?
-        self.buf.iter().skip(range.start).take(range.end)
+pub struct RandomProjection<const N: usize, T, const D: usize>(
+    IdentifierMethod,
+    HyperplaneMethod<N, T, D>,
+);
+
+impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
+where
+    T: hyperplane::Projection<T, D> + RandomUnitVector<D, Output = [T; D]> + Default + Copy,
+{
+    fn tree(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
+        // TODO: const sz: usize = N.ilog2() would be a nice size for this arr, but
+        // the compiler is crying. NOTE: If this is `N`, we can't `MaybeUninit` this
+        // because the upper bits need to be zero.
+        let mut arr = [hyperplane::Sign::default(); N];
+
+        // TODO: Is there an iterator construction that mimics the behavior of search through
+        // a BST? I can imagine how the BTree construction implements search, is that the way
+        // to do it here?
+        let mut iter = iter.enumerate();
+        let mut arr_idx: usize = 0;
+        while let Some((idx, hp)) = iter.next() {
+            let mem = arr.get_mut(arr_idx).unwrap();
+            *mem = T::project(qv, &hp);
+            arr_idx += 1;
+
+            let next_idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
+            iter.advance_by(next_idx - idx).unwrap();
+        }
+
+        hyperplane::Sign::to_usize(arr)
     }
 
-    /// Find an approximate nearest neighbor for an input vector. NOTE: this will
-    /// return a random vector from a *single bin*.
-    pub fn ann_rand<R: Rng>(&'a self, rng: &mut R, qv: &[T; D]) -> Option<&'a I> {
-        self.ann(qv).choose(rng)
+    fn binvec(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
+        // TODO: MaybeUninit this?
+        let mut arr = [hyperplane::Sign::default(); N];
+        for (mem, hp) in arr.iter_mut().zip(iter) {
+            *mem = T::project(qv, &hp);
+        }
+
+        hyperplane::Sign::to_usize(arr)
+    }
+
+    /// Return the bin from which to select an ANN.
+    pub fn bin(&self, qv: &[T; D]) -> usize {
+        match self.0 {
+            IdentifierMethod::Tree => RandomProjection::<N, T, D>::tree(qv, self.1.into_iter()),
+            IdentifierMethod::BinaryVec => {
+                RandomProjection::<N, T, D>::binvec(qv, self.1.into_iter())
+            }
+        }
     }
 }
 
@@ -203,56 +151,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_hamming() {
-        assert_eq!(hamming(1, 1), 0);
-        assert_eq!(hamming(2, 0), 1);
+    fn test_precomputed_iterator() {
+        let arr = [[1.0, 2.0, 3.0, 4.0, 5.0], [1.5, 2.5, 3.5, 6.5, 7.5]];
+
+        let hp = HyperplaneMethod::Precomputed(arr);
+        for (idx, x) in hp.into_iter().enumerate() {
+            assert_eq!(&x, arr.get(idx).unwrap());
+        }
     }
 
     #[test]
-    fn test_pow2() {
-        assert_eq!(pow2(2), 4);
-        assert_eq!(pow2(4), 16);
-    }
+    fn test_ondemand_iterator() {
+        let hp = HyperplaneMethod::<2, f32, 5>::OnDemand(0u64);
+        let mut iter = hp.into_iter().enumerate();
+        let x = iter.next();
+        let y = iter.next();
 
-    #[test]
-    fn test_bin_range_one() {
-        const NB: usize = 2;
-        const N: usize = 1;
-        const D: usize = 1;
-
-        let mut rng = rand::thread_rng();
-        let inner_vec = [1.0; D];
-        let outer_vec = [(0u8, inner_vec); N];
-
-        let d = LSHDB::<NB, N, f32, D, u8>::new(&mut rng, &outer_vec, None);
-        let x = LSHDB::<NB, N, f32, D, u8>::to_hyperplane_proj(&d.hyperplane_normals, &inner_vec);
-
-        // When we have a single vector, (start, end) should be (0, 1).
-        assert_eq!(d.bin_range(x), std::ops::Range { start: 0, end: N });
+        // Both (x, y) should be vectors.
+        assert!(x.is_some() && y.is_some());
+        // Only two values should have been returned from the iterator.
+        assert!(iter.next().is_none());
+        // The two values *shouldn't* (they could, but the universe has likely ended) the same.
+        assert_ne!(x, y);
     }
 }
 
-// TODO: This should be hidden private and exposed as pub when a cfg feature like
-// 'benchmark' is enabled.
-pub mod hyperplane {
-    use rand::{
-        distributions::{Distribution, Standard},
-        Rng,
-    };
-
+mod hyperplane {
     #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
-        #[default]
         Positive,
+        #[default]
+        // Make `Negative` the default: it converts to zero, so the resulting upper bits of
+        // the usize won't matter in regards to an index.
         Negative,
     }
 
     impl Sign {
         // Convert an arr of `Sign` into a single usize.
-        pub fn to_usize<const L: usize>(sign_arr: [Sign; L]) -> usize {
+        pub fn to_usize<const N: usize>(sign_arr: [Sign; N]) -> usize {
             // TODO: There's const-generic type-system magic to force this check
             // at compile time.
-            assert!(L <= usize::BITS.try_into().unwrap());
+            assert!(N <= usize::BITS.try_into().unwrap());
             sign_arr
                 .into_iter()
                 .enumerate()
@@ -262,9 +201,18 @@ pub mod hyperplane {
         }
     }
 
-    impl Into<usize> for Sign {
-        fn into(self) -> usize {
-            match self {
+    impl From<Sign> for usize {
+        fn from(val: Sign) -> usize {
+            match val {
+                Sign::Positive => 1,
+                Sign::Negative => 0,
+            }
+        }
+    }
+
+    impl From<&Sign> for usize {
+        fn from(val: &Sign) -> usize {
+            match &val {
                 Sign::Positive => 1,
                 Sign::Negative => 0,
             }
@@ -291,12 +239,12 @@ pub mod hyperplane {
         }
     }
 
-    pub trait ProjLSH<T, const D: usize> {
-        fn proj(a: &[T; D], b: &[T; D]) -> Sign;
+    pub trait Projection<T, const D: usize> {
+        fn project(a: &[T; D], b: &[T; D]) -> Sign;
     }
 
-    impl<const D: usize> ProjLSH<f32, D> for f32 {
-        fn proj(a: &[f32; D], b: &[f32; D]) -> Sign {
+    impl<const D: usize> Projection<f32, D> for f32 {
+        fn project(a: &[f32; D], b: &[f32; D]) -> Sign {
             (0..D)
                 .fold(0.0f32, |acc, idx| {
                     acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
@@ -305,35 +253,14 @@ pub mod hyperplane {
         }
     }
 
-    impl<const D: usize> ProjLSH<f64, D> for f64 {
-        fn proj(a: &[f64; D], b: &[f64; D]) -> Sign {
+    impl<const D: usize> Projection<f64, D> for f64 {
+        fn project(a: &[f64; D], b: &[f64; D]) -> Sign {
             (0..D)
                 .fold(0.0f64, |acc, idx| {
                     acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
                 })
                 .into()
         }
-    }
-
-    // TODO: This should be hidden private and exposed as pub when a cfg feature like
-    // 'benchmark' is enabled; should be pub(super).
-    /// Create a normal for a random hyperplane.
-    pub fn random_hyperplane_normal<T, const D: usize, R: Rng>(rng: &mut R) -> [T; D]
-    where
-        Standard: Distribution<T>,
-    {
-        let buf = {
-            // TODO: What's the 'proper' way to initialize this?
-            let mut data: [std::mem::MaybeUninit<T>; D] =
-                unsafe { std::mem::MaybeUninit::uninit().assume_init() };
-            // TODO: Should this be a random gaussian vector? A random unit normal?
-            for component in &mut data[..] {
-                component.write(rng.gen::<T>());
-            }
-            unsafe { data.as_ptr().cast::<[T; D]>().read() }
-        };
-
-        buf
     }
 
     #[cfg(test)]
@@ -352,12 +279,6 @@ pub mod hyperplane {
                 ]),
                 0b11001
             );
-        }
-
-        #[test]
-        fn build_random_hyperplane_normal() {
-            let mut rng = rand::thread_rng();
-            let _: [f32; 4] = random_hyperplane_normal(&mut rng);
         }
     }
 }
