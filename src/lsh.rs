@@ -113,13 +113,14 @@ where
         // to do it here?
         let mut iter = iter.enumerate();
         let mut arr_idx: usize = 0;
+
         while let Some((idx, hp)) = iter.next() {
             let mem = arr.get_mut(arr_idx).unwrap();
             *mem = T::project(qv, &hp);
             arr_idx += 1;
 
             let next_idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
-            iter.advance_by(next_idx - idx).unwrap();
+            let _ = iter.advance_by(next_idx - idx);
         }
 
         hyperplane::Sign::to_usize(arr)
@@ -143,6 +144,11 @@ where
                 RandomProjection::<N, T, D>::binvec(qv, self.1.into_iter())
             }
         }
+    }
+
+    /// Create a new RandomProjection.
+    pub fn new(im: IdentifierMethod, hm: HyperplaneMethod<N, T, D>) -> Self {
+        Self(im, hm)
     }
 }
 
