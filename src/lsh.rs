@@ -102,8 +102,27 @@ impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
     T: hyperplane::Projection<T, D>,
 {
-    fn tree(iter: impl Iterator<Item = [T; D]>) -> usize {
-        todo!();
+    fn tree(qv: &[T; D], mut iter: impl Iterator<Item = [T; D]>) -> usize {
+        // TODO: const sz: usize = N.ilog2() would be a nice size for this arr, but
+        // the compiler is crying. NOTE: If this is `N`, we can't `MaybeUninit` this
+        // because the upper bits need to be zero.
+        let mut arr = [hyperplane::Sign::default(); N];
+
+        // TODO: Is there an iterator construction that mimics the behavior of search through
+        // a BST? I can imagine how the BTree construction implements search, is that the way
+        // to do it here?
+        let mut iter = iter.enumerate();
+        let mut arr_idx: usize = 0;
+        while let Some((idx, hp)) = iter.next() {
+            let mem = arr.get_mut(idx).unwrap();
+            *mem = T::project(qv, &hp);
+            arr_idx += 1;
+
+            let next_idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
+            iter.advance_by(next_idx - idx).unwrap();
+        }
+
+        hyperplane::Sign::to_usize(arr)
     }
 
     fn binvec(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
@@ -155,8 +174,10 @@ mod tests {
 mod hyperplane {
     #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
-        #[default]
         Positive,
+        #[default]
+        // Make `Negative` the default: it converts to zero, so the resulting upper bits of
+        // the usize won't matter in regards to an index.
         Negative,
     }
 
@@ -178,6 +199,15 @@ mod hyperplane {
     impl From<Sign> for usize {
         fn from(val: Sign) -> usize {
             match val {
+                Sign::Positive => 1,
+                Sign::Negative => 0,
+            }
+        }
+    }
+
+    impl From<&Sign> for usize {
+        fn from(val: &Sign) -> usize {
+            match &val {
                 Sign::Positive => 1,
                 Sign::Negative => 0,
             }
