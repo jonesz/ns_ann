@@ -100,9 +100,9 @@ pub struct RandomProjection<const N: usize, T, const D: usize>(
 
 impl<const N: usize, T, const D: usize> RandomProjection<N, T, D>
 where
-    T: hyperplane::Projection<T, D>,
+    T: hyperplane::Projection<T, D> + RandomUnitVector<D, Output = [T; D]> + Default + Copy,
 {
-    fn tree(qv: &[T; D], mut iter: impl Iterator<Item = [T; D]>) -> usize {
+    fn tree(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
         // TODO: const sz: usize = N.ilog2() would be a nice size for this arr, but
         // the compiler is crying. NOTE: If this is `N`, we can't `MaybeUninit` this
         // because the upper bits need to be zero.
@@ -114,7 +114,7 @@ where
         let mut iter = iter.enumerate();
         let mut arr_idx: usize = 0;
         while let Some((idx, hp)) = iter.next() {
-            let mem = arr.get_mut(idx).unwrap();
+            let mem = arr.get_mut(arr_idx).unwrap();
             *mem = T::project(qv, &hp);
             arr_idx += 1;
 
@@ -137,7 +137,12 @@ where
 
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, qv: &[T; D]) -> usize {
-        todo!();
+        match self.0 {
+            IdentifierMethod::Tree => RandomProjection::<N, T, D>::tree(qv, self.1.into_iter()),
+            IdentifierMethod::BinaryVec => {
+                RandomProjection::<N, T, D>::binvec(qv, self.1.into_iter())
+            }
+        }
     }
 }
 
