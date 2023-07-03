@@ -8,8 +8,8 @@ pub type Seed = u64;
 /// Given the output of a projection: f(q, h), determine how to build an
 /// an identifier.
 pub enum IdentifierMethod {
-    /// Consider the output of f(q, h) as the next index to go to within
-    /// a balanced binary tree.
+    /// Consider the output of f(q, h) as the selection of a leaf within
+    /// a balanced binary tree. Output is thus the concatenation of logN bits.
     Tree,
     /// Consider the output of f(q, h) as a single bit; concatenate all N
     /// bits into a usize.
@@ -39,9 +39,9 @@ where
     }
 }
 
-// NOTE: This iterator requires a *CLONE*; even though `Precomputed` could be accomplished
-// without a clone, the lifetime 'a can't match the lifetime 'b of the `OnDemandIterator` (which)
-// is stored on the function call stack rather than say, 'static.
+// NB: This iterator requires a *CLONE*; even though `Precomputed` could be accomplished
+// without a clone, the lifetime 'a can't match the lifetime 'b of the `OnDemandIterator` (which
+// is stored on the function call stack rather than say, 'static).
 // TODO: Can we coalesce the longer lifetime 'a to the shorter lifetime 'b?. Or does this enum
 // need to be split and we utilize a trait with a set of structs?
 pub enum HyperplaneMethodIterator<'a, const N: usize, T, const D: usize> {
@@ -73,7 +73,7 @@ where
     }
 }
 
-// NOTE: This iterator produces values via *CLONE*.
+// NB: This iterator produces values via *CLONE*.
 impl<'a, const N: usize, T, const D: usize> IntoIterator for &'a HyperplaneMethod<N, T, D>
 where
     T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
@@ -104,12 +104,12 @@ where
 {
     fn tree(qv: &[T; D], iter: impl Iterator<Item = [T; D]>) -> usize {
         // TODO: const sz: usize = N.ilog2() would be a nice size for this arr, but
-        // the compiler is crying. NOTE: If this is `N`, we can't `MaybeUninit` this
+        // the compiler is crying. NB: If this is `N`, we can't `MaybeUninit` this
         // because the upper bits need to be zero.
         let mut arr = [hyperplane::Sign::default(); N];
 
         // TODO: Is there an iterator construction that mimics the behavior of search through
-        // a BST? I can imagine how the BTree construction implements search, is that the way
+        // a BST? I can imagine how the BTree construction implements search: is that the way
         // to do it here?
         let mut iter = iter.enumerate();
         let mut arr_idx: usize = 0;
