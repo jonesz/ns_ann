@@ -1,0 +1,3 @@
+[submodule "ann-benchmarks"]
+	path = ann-benchmarks
+	url = git@github.com:jonesz/ann-benchmarks.git
