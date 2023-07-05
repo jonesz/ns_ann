@@ -11,7 +11,7 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
     let im = lsh::IdentifierMethod::Tree;
     let rp = lsh::RandomProjection::<N, f32, D>::new(im, hm);
 
-    c.bench_function("bench_randomproj_f32_tree_precomputed", |b| {
+    c.bench_function("bench_randomproj_f32_tree", |b| {
         let qv = [0.0f32; D];
         b.iter(|| {
             black_box(rp.bin(&qv));
@@ -22,7 +22,7 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
     let im = lsh::IdentifierMethod::BinaryVec;
     let rp = lsh::RandomProjection::<N, f32, D>::new(im, hm);
 
-    c.bench_function("bench_randomproj_f32_binvec_precomputed", |b| {
+    c.bench_function("bench_randomproj_f32_concatenate", |b| {
         let qv = [0.0f32; D];
         b.iter(|| {
             black_box(rp.bin(&qv));
