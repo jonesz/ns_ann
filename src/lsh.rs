@@ -25,19 +25,12 @@ where
         // TODO: `MaybeUnint` this?
         let mut arr = [hyperplane::Sign::default(); N.ilog2() as usize];
 
-        // TODO: Is there an iterator construction that mimics the behavior of search through
-        // a BST? I can imagine how the BTree construction implements search, is that the way
-        // to do it here?
-        let mut iter = self.1.iter().enumerate();
-        let mut arr_idx: usize = 0;
-
-        while let Some((idx, hp)) = iter.next() {
-            let mem = arr.get_mut(arr_idx).unwrap();
-            *mem = T::project(query, &hp);
-            arr_idx += 1;
-
-            let next_idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
-            let _ = iter.advance_by(next_idx - idx);
+        let mut idx = 0;
+        for mem in arr.iter_mut() {
+            let hp = self.1.get(idx).unwrap();
+            *mem = T::project(query, hp);
+            // Choose the left/right node for a perfect BT.
+            idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
         }
 
         hyperplane::Sign::to_usize(arr)
