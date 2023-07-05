@@ -2,6 +2,21 @@
 use rand::Rng;
 use rand_distr::StandardNormal;
 
+pub fn build_random_unit_hyperplanes<const N: usize, T, const D: usize, R>(
+    rng: &mut R,
+) -> [[T; D]; N]
+where
+    T: RandomUnitVector<D, Output = [T; D]> + Default + Copy,
+    R: Rng,
+{
+    let mut arr = [[T::default(); D]; N];
+    for mem in arr.iter_mut() {
+        *mem = T::sample(rng);
+    }
+
+    arr
+}
+
 pub trait RandomUnitVector<const D: usize> {
     type Output;
     fn sample<R: Rng>(rng: &mut R) -> Self::Output;
