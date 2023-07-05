@@ -14,7 +14,7 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
     c.bench_function("bench_randomproj_f32_tree", |b| {
         let qv = [0.0f32; D];
         b.iter(|| {
-            black_box(rp.bin(&qv));
+            rp.bin(black_box(&qv));
         })
     });
 
@@ -24,7 +24,7 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
     c.bench_function("bench_randomproj_f32_concatenate", |b| {
         let qv = [0.0f32; D];
         b.iter(|| {
-            black_box(rp.bin(&qv));
+            rp.bin(black_box(&qv));
         })
     });
 }
