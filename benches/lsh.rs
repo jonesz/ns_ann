@@ -7,9 +7,10 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
     const N: usize = 16;
 
     let mut rng = StdRng::seed_from_u64(0u64);
-    let cm = lsh::ConstructionMethod::Tree;
     let arr: [[f32; D]; N] = distribution::build_random_unit_hyperplanes(&mut rng);
-    let rp = lsh::RandomProjection::new(cm, &arr);
+
+    const CM_TREE: lsh::ConstructionMethod = lsh::ConstructionMethod::Tree;
+    let rp: lsh::RandomProjection<N, f32, D, CM_TREE> = lsh::RandomProjection::new(&arr);
 
     c.bench_function("bench_randomproj_f32_tree", |b| {
         let qv = [0.0f32; D];
@@ -18,8 +19,8 @@ fn bench_randomproj_16_f32_1024(c: &mut Criterion) {
         })
     });
 
-    let cm = lsh::ConstructionMethod::Concatenate;
-    let rp = lsh::RandomProjection::new(cm, &arr);
+    const CM_CONCAT: lsh::ConstructionMethod = lsh::ConstructionMethod::Concatenate;
+    let rp: lsh::RandomProjection<N, f32, D, CM_CONCAT> = lsh::RandomProjection::new(&arr);
 
     c.bench_function("bench_randomproj_f32_concatenate", |b| {
         let qv = [0.0f32; D];

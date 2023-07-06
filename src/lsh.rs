@@ -1,7 +1,25 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 
+// Allow the type system to bind `N` to be lte to `usize::BITS`; this depends on
+// the `ConstructionMethod` which computes different expressions with `N`.
+// See: https://github.com/rust-lang/rust/issues/68436#issuecomment-709786363
+pub struct ConstAssert<const ASSERT: ()>;
+pub const fn fits_in_usize<const CM: ConstructionMethod, const N: usize>() {
+    match CM {
+        ConstructionMethod::Tree => assert!(
+            N.ilog2() < usize::BITS,
+            "Within a tree construction, the depth of the tree (N) must be less usize::BITS."
+        ),
+        ConstructionMethod::Concatenate => assert!(
+            N < usize::BITS as usize,
+            "Within a concatenative construction, N must be less than usize::BITS."
+        ),
+    }
+}
+
 /// Given the output of a projection: f(q, h), determine how to construct the
 /// lower-dimensional identifier.
+#[derive(PartialEq, Eq, core::marker::ConstParamTy)]
 pub enum ConstructionMethod {
     /// Consider the output of f(q, h) as the next index to go to within
     /// a balanced binary tree.
@@ -11,15 +29,21 @@ pub enum ConstructionMethod {
     Concatenate,
 }
 
-pub struct RandomProjection<'a, const N: usize, T, const D: usize>(
-    ConstructionMethod,
-    &'a [[T; D]; N],
-);
-
-impl<'a, const N: usize, T, const D: usize> RandomProjection<'a, N, T, D>
+pub struct RandomProjection<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
 where
+    ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+{
+    hp: &'a [[T; D]; N],
+}
+
+impl<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
+    RandomProjection<'a, N, T, D, CM>
+where
+    ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+    // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
+    // allows for the stack construction of that arr.
+    [T; N.ilog2() as usize]: Sized,
     T: hyperplane::Projection<T, D>,
-    [(); N.ilog2() as usize]:,
 {
     fn tree(&self, query: &[T; D]) -> usize {
         // TODO: `MaybeUnint` this?
@@ -27,40 +51,41 @@ where
 
         let mut idx = 0;
         for mem in arr.iter_mut() {
-            let hp = self.1.get(idx).unwrap();
+            let hp = self.hp.get(idx).unwrap();
             *mem = T::project(query, hp);
             // Choose the left/right node for a perfect BT.
             idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
         }
 
-        hyperplane::Sign::to_usize(arr)
+        hyperplane::Sign::to_usize(&arr)
     }
 
     fn concatenate(&self, query: &[T; D]) -> usize {
         // TODO: MaybeUninit this?
         let mut arr = [hyperplane::Sign::default(); N];
-        for (mem, hp) in arr.iter_mut().zip(self.1.iter()) {
+        for (mem, hp) in arr.iter_mut().zip(self.hp.iter()) {
             *mem = T::project(query, hp);
         }
 
-        hyperplane::Sign::to_usize(arr)
+        hyperplane::Sign::to_usize(&arr)
     }
 
     /// Return the bin from which to select an ANN.
     pub fn bin(&self, query: &[T; D]) -> usize {
-        match self.0 {
+        match CM {
             ConstructionMethod::Tree => self.tree(query),
             ConstructionMethod::Concatenate => self.concatenate(query),
         }
     }
 
     /// Create a new RandomProjection.
-    pub fn new(cm: ConstructionMethod, arr: &'a [[T; D]; N]) -> Self {
-        Self(cm, arr)
+    pub fn new(hp: &'a [[T; D]; N]) -> Self {
+        Self { hp }
     }
 }
 
 mod hyperplane {
+    use super::{fits_in_usize, ConstAssert, ConstructionMethod};
     #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
         Positive,
@@ -72,10 +97,10 @@ mod hyperplane {
 
     impl Sign {
         // Convert an arr of `Sign` into a single usize.
-        pub fn to_usize<const N: usize>(sign_arr: [Sign; N]) -> usize {
-            // TODO: There's const-generic type-system magic to force this check
-            // at compile time.
-            assert!(N <= usize::BITS.try_into().unwrap());
+        pub fn to_usize<const CM: ConstructionMethod, const N: usize>(sign_arr: &[Sign]) -> usize
+        where
+            ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+        {
             sign_arr
                 .into_iter()
                 .enumerate()
@@ -87,6 +112,15 @@ mod hyperplane {
 
     impl From<Sign> for usize {
         fn from(val: Sign) -> usize {
+            match val {
+                Sign::Positive => 1,
+                Sign::Negative => 0,
+            }
+        }
+    }
+
+    impl From<&Sign> for usize {
+        fn from(val: &Sign) -> usize {
             match val {
                 Sign::Positive => 1,
                 Sign::Negative => 0,
@@ -144,16 +178,17 @@ mod hyperplane {
 
         #[test]
         fn test_sign_to_usize() {
-            assert_eq!(
-                Sign::to_usize([
-                    Sign::Positive,
-                    Sign::Negative,
-                    Sign::Negative,
-                    Sign::Positive,
-                    Sign::Positive
-                ]),
-                0b11001
-            );
+            const CM: ConstructionMethod = ConstructionMethod::Tree;
+            const SZ: usize = 5;
+            const ARR: [Sign; SZ] = [
+                Sign::Positive,
+                Sign::Negative,
+                Sign::Negative,
+                Sign::Positive,
+                Sign::Positive,
+            ];
+
+            assert_eq!(Sign::to_usize::<CM, SZ>(&ARR), 0b11001);
         }
     }
 }
