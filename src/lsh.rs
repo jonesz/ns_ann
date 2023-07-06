@@ -43,9 +43,9 @@ where
     // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
     // allows for the stack construction of that arr.
     [T; N.ilog2() as usize]: Sized,
-    T: hyperplane::Projection<T, D>,
+    T: hyperplane::Projection<'a, T, D>,
 {
-    fn tree(&self, query: &[T; D]) -> usize {
+    fn tree(&self, query: &'a [T; D]) -> usize {
         // TODO: `MaybeUnint` this?
         let mut arr = [hyperplane::Sign::default(); N.ilog2() as usize];
 
@@ -60,7 +60,7 @@ where
         hyperplane::Sign::to_usize(&arr)
     }
 
-    fn concatenate(&self, query: &[T; D]) -> usize {
+    fn concatenate(&self, query: &'a [T; D]) -> usize {
         // TODO: MaybeUninit this?
         let mut arr = [hyperplane::Sign::default(); N];
         for (mem, hp) in arr.iter_mut().zip(self.hp.iter()) {
@@ -71,7 +71,7 @@ where
     }
 
     /// Return the bin from which to select an ANN.
-    pub fn bin(&self, query: &[T; D]) -> usize {
+    pub fn bin(&self, query: &'a [T; D]) -> usize {
         match CM {
             ConstructionMethod::Tree => self.tree(query),
             ConstructionMethod::Concatenate => self.concatenate(query),
@@ -102,7 +102,7 @@ mod hyperplane {
             ConstAssert<{ fits_in_usize::<CM, N>() }>:,
         {
             sign_arr
-                .into_iter()
+                .iter()
                 .enumerate()
                 .fold(0usize, |acc, (idx, value)| {
                     acc + (Into::<usize>::into(value) << idx)
@@ -148,26 +148,19 @@ mod hyperplane {
         }
     }
 
-    pub trait Projection<T, const D: usize> {
-        fn project(a: &[T; D], b: &[T; D]) -> Sign;
+    pub trait Projection<'c, T, const D: usize> {
+        fn project(a: &'c [T; D], b: &'c [T; D]) -> Sign;
     }
 
-    impl<const D: usize> Projection<f32, D> for f32 {
-        fn project(a: &[f32; D], b: &[f32; D]) -> Sign {
-            (0..D)
-                .fold(0.0f32, |acc, idx| {
-                    acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
-                })
-                .into()
-        }
-    }
-
-    impl<const D: usize> Projection<f64, D> for f64 {
-        fn project(a: &[f64; D], b: &[f64; D]) -> Sign {
-            (0..D)
-                .fold(0.0f64, |acc, idx| {
-                    acc + (a.get(idx).unwrap() + b.get(idx).unwrap()) // dot-product.
-                })
+    impl<'c, T, const D: usize> Projection<'c, T, D> for T
+    where
+        T: Default + core::ops::Add<Output = T> + Into<Sign>,
+        &'c T: core::ops::Mul<&'c T, Output = T> + 'c,
+    {
+        fn project(a: &'c [T; D], b: &'c [T; D]) -> Sign {
+            a.iter()
+                .zip(b.iter())
+                .fold(T::default(), |acc, (x, y)| acc + (x * y))
                 .into()
         }
     }
