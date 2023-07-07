@@ -1,31 +1,31 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 
-// Allow the type system to bind `N` to be lte to `usize::BITS`; this depends on
+// Allow the type system to bind `N` to be lte `usize::BITS`; this depends on
 // the `ConstructionMethod` which computes different expressions with `N`.
 // See: https://github.com/rust-lang/rust/issues/68436#issuecomment-709786363
 pub struct ConstAssert<const ASSERT: ()>;
 pub const fn fits_in_usize<const CM: ConstructionMethod, const N: usize>() {
     match CM {
         ConstructionMethod::Tree => assert!(
-            N.ilog2() < usize::BITS,
-            "Within a tree construction, the depth of the tree (N) must be less usize::BITS."
+            N.ilog2() <= usize::BITS,
+            "Within a tree construction, the depth of the tree (N) must be lte to usize::BITS."
         ),
         ConstructionMethod::Concatenate => assert!(
-            N < usize::BITS as usize,
-            "Within a concatenative construction, N must be less than usize::BITS."
+            N <= usize::BITS as usize,
+            "Within a concatenative construction, N must be lte to usize::BITS."
         ),
     }
 }
 
-/// Given the output of a projection: f(q, h), determine how to construct the
+/// Given the output of the cosine approximation: sign(f(q, h)), determine how to construct the
 /// lower-dimensional identifier.
 #[derive(PartialEq, Eq, core::marker::ConstParamTy)]
 pub enum ConstructionMethod {
-    /// Consider the output of f(q, h) as the next index to go to within
+    /// Consider the output of sign(f(q, h)) as the next index to go to within
     /// a balanced binary tree.
     Tree,
-    /// Consider the output of f(q, h) as a single bit; concatenate all N
-    /// bits into a usize.
+    /// Consider the output of sign(f(q, h)) as a single bit; concatenate all `N`
+    /// bits into a `usize`.
     Concatenate,
 }
 
@@ -43,7 +43,7 @@ where
     // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
     // allows for the stack construction of that arr.
     [T; N.ilog2() as usize]: Sized,
-    T: hyperplane::Projection<'a, T, D>,
+    T: hyperplane::CosineApproximate<'a, T, D>,
 {
     fn tree(&self, query: &'a [T; D]) -> usize {
         // TODO: `MaybeUnint` this?
@@ -52,7 +52,7 @@ where
         let mut idx = 0;
         for mem in arr.iter_mut() {
             let hp = self.hp.get(idx).unwrap();
-            *mem = T::project(query, hp);
+            *mem = T::sign_ip(query, hp);
             // Choose the left/right node for a perfect BT.
             idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
         }
@@ -64,7 +64,7 @@ where
         // TODO: MaybeUninit this?
         let mut arr = [hyperplane::Sign::default(); N];
         for (mem, hp) in arr.iter_mut().zip(self.hp.iter()) {
-            *mem = T::project(query, hp);
+            *mem = T::sign_ip(query, hp);
         }
 
         hyperplane::Sign::to_usize(&arr)
@@ -78,7 +78,7 @@ where
         }
     }
 
-    /// Create a new RandomProjection.
+    /// Create a new `RandomProjection`.
     pub fn new(hp: &'a [[T; D]; N]) -> Self {
         Self { hp }
     }
@@ -148,16 +148,17 @@ mod hyperplane {
         }
     }
 
-    pub trait Projection<'c, T, const D: usize> {
-        fn project(a: &'c [T; D], b: &'c [T; D]) -> Sign;
+    pub trait CosineApproximate<'c, T, const D: usize> {
+        /// Return the sign of the inner product of two vectors.
+        fn sign_ip(a: &'c [T; D], b: &'c [T; D]) -> Sign;
     }
 
-    impl<'c, T, const D: usize> Projection<'c, T, D> for T
+    impl<'c, T, const D: usize> CosineApproximate<'c, T, D> for T
     where
         T: Default + core::ops::Add<Output = T> + Into<Sign>,
         &'c T: core::ops::Mul<&'c T, Output = T> + 'c,
     {
-        fn project(a: &'c [T; D], b: &'c [T; D]) -> Sign {
+        fn sign_ip(a: &'c [T; D], b: &'c [T; D]) -> Sign {
             a.iter()
                 .zip(b.iter())
                 .fold(T::default(), |acc, (x, y)| acc + (x * y))
