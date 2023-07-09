@@ -3,5 +3,5 @@
 
 pub mod distribution;
 // mod hnsw;
-mod ident;
+mod index;
 pub mod lsh;

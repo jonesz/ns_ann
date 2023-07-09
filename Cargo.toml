@@ -8,6 +8,7 @@ edition = "2021"
 [dependencies]
 rand = { version = "0.8.5", features = ["small_rng"] }
 rand_distr = { version = "0.4.3" }
+num-traits = "0.2.15"
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
@@ -15,3 +16,8 @@ criterion = { version = "0.4", features = ["html_reports"] }
 [[bench]]
 name = "lsh"
 harness = false
+
+[workspace]
+members = [
+  "ns_example"
+]
