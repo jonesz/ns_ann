@@ -4,14 +4,14 @@
 // the `ConstructionMethod` which computes different expressions with `N`.
 // See: https://github.com/rust-lang/rust/issues/68436#issuecomment-709786363
 pub struct ConstAssert<const ASSERT: ()>;
-pub const fn fits_in_usize<const CM: ConstructionMethod, const N: usize>() {
-    match CM {
+pub const fn fits_in_usize(cm: ConstructionMethod, n: usize) {
+    match cm {
         ConstructionMethod::Tree => assert!(
-            N.ilog2() <= usize::BITS,
+            n.ilog2() <= usize::BITS,
             "Within a tree construction, the depth of the tree (N) must be lte to usize::BITS."
         ),
         ConstructionMethod::Concatenate => assert!(
-            N <= usize::BITS as usize,
+            n <= usize::BITS as usize,
             "Within a concatenative construction, N must be lte to usize::BITS."
         ),
     }
@@ -31,7 +31,7 @@ pub enum ConstructionMethod {
 
 pub struct RandomProjection<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
 where
-    ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+    ConstAssert<{ fits_in_usize(CM, N) }>:,
 {
     hp: &'a [[T; D]; N],
 }
@@ -39,7 +39,7 @@ where
 impl<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
     RandomProjection<'a, N, T, D, CM>
 where
-    ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+    ConstAssert<{ fits_in_usize(CM, N) }>:,
     // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
     // allows for the stack construction of that arr.
     [T; N.ilog2() as usize]: Sized,
@@ -99,7 +99,7 @@ mod hyperplane {
         // Convert an arr of `Sign` into a single usize.
         pub fn to_usize<const CM: ConstructionMethod, const N: usize>(sign_arr: &[Sign]) -> usize
         where
-            ConstAssert<{ fits_in_usize::<CM, N>() }>:,
+            ConstAssert<{ fits_in_usize(CM, N) }>:,
         {
             sign_arr
                 .iter()
