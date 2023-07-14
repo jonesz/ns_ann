@@ -29,30 +29,29 @@ pub enum ConstructionMethod {
     Concatenate,
 }
 
-pub struct RandomProjection<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
+pub struct RandomProjection<const N: usize, T, const D: usize, const CM: ConstructionMethod>
 where
     ConstAssert<{ fits_in_usize(CM, N) }>:,
 {
-    hp: &'a [[T; D]; N],
+    t_marker: core::marker::PhantomData<T>,
 }
 
-impl<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
-    RandomProjection<'a, N, T, D, CM>
+impl<'b, 'a: 'b, const N: usize, T, const D: usize, const CM: ConstructionMethod>
+    RandomProjection<N, T, D, CM>
 where
     ConstAssert<{ fits_in_usize(CM, N) }>:,
     // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
     // allows for the stack construction of that arr.
     [T; N.ilog2() as usize]: Sized,
-    T: hyperplane::CosineApproximate<'a, T, D>,
+    T: hyperplane::CosineApproximate<'b, T, D>,
 {
-    fn tree(&self, query: &'a [T; D]) -> usize {
+    fn tree(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
         // TODO: `MaybeUnint` this?
         let mut arr = [hyperplane::Sign::default(); N.ilog2() as usize];
-
         let mut idx = 0;
         for mem in arr.iter_mut() {
-            let hp = self.hp.get(idx).unwrap();
-            *mem = T::sign_ip(query, hp);
+            let hp_i = hp.get(idx).unwrap();
+            *mem = T::sign_ip(query, hp_i);
             // Choose the left/right node for a perfect BT.
             idx = (idx * 2) + Into::<usize>::into(*mem) + 1;
         }
@@ -60,27 +59,21 @@ where
         hyperplane::Sign::to_usize(&arr)
     }
 
-    fn concatenate(&self, query: &'a [T; D]) -> usize {
+    fn concatenate(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
         // TODO: MaybeUninit this?
         let mut arr = [hyperplane::Sign::default(); N];
-        for (mem, hp) in arr.iter_mut().zip(self.hp.iter()) {
-            *mem = T::sign_ip(query, hp);
+        for (mem, hp_i) in arr.iter_mut().zip(hp.iter()) {
+            *mem = T::sign_ip(query, hp_i);
         }
 
         hyperplane::Sign::to_usize(&arr)
     }
 
-    /// Return the bin from which to select an ANN.
-    pub fn bin(&self, query: &'a [T; D]) -> usize {
+    pub fn bin(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
         match CM {
-            ConstructionMethod::Tree => self.tree(query),
-            ConstructionMethod::Concatenate => self.concatenate(query),
+            ConstructionMethod::Tree => RandomProjection::tree(query, hp),
+            ConstructionMethod::Concatenate => RandomProjection::concatenate(query, hp),
         }
-    }
-
-    /// Create a new `RandomProjection`.
-    pub fn new(hp: &'a [[T; D]; N]) -> Self {
-        Self { hp }
     }
 }
 
