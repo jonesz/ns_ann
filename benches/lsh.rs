@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ns_ann::{distribution, lsh};
+use ns_ann::{distribution, lsh, lsh::LSH};
 use rand::{rngs::StdRng, SeedableRng};
 
 fn bench_randomproj_16_f32_1024(c: &mut Criterion) {

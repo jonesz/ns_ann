@@ -1,5 +1,12 @@
 // src/lsh.rs; Copyright 2023, Ethan Jones. See LICENSE for licensing information.
 
+pub trait LSH<'a, const NB: usize, T, const D: usize>
+where
+    T: hyperplane::CosineApproximate<'a, T, D>,
+{
+    fn bin(query: &'a [T; D], hp: &'a [[T; D]; NB]) -> usize;
+}
+
 // Allow the type system to bind `N` to be lte `usize::BITS`; this depends on
 // the `ConstructionMethod` which computes different expressions with `N`.
 // See: https://github.com/rust-lang/rust/issues/68436#issuecomment-709786363
@@ -36,17 +43,31 @@ where
     t_marker: core::marker::PhantomData<T>,
 }
 
-impl<'b, 'a: 'b, const N: usize, T, const D: usize, const CM: ConstructionMethod>
+impl<'a, const NB: usize, T, const D: usize, const CM: ConstructionMethod> LSH<'a, NB, T, D>
+    for RandomProjection<NB, T, D, CM>
+where
+    ConstAssert<{ fits_in_usize(CM, NB) }>:,
+    [T; NB.ilog2() as usize]: Sized,
+    T: hyperplane::CosineApproximate<'a, T, D>,
+{
+    fn bin(query: &'a [T; D], hp: &'a [[T; D]; NB]) -> usize {
+        match CM {
+            ConstructionMethod::Tree => RandomProjection::tree(query, hp),
+            ConstructionMethod::Concatenate => RandomProjection::concatenate(query, hp),
+        }
+    }
+}
+
+impl<'a, const N: usize, T, const D: usize, const CM: ConstructionMethod>
     RandomProjection<N, T, D, CM>
 where
     ConstAssert<{ fits_in_usize(CM, N) }>:,
     // Within a tree construction, we require a `Sign` arr of `log2(N)`; this bound
     // allows for the stack construction of that arr.
     [T; N.ilog2() as usize]: Sized,
-    T: hyperplane::CosineApproximate<'b, T, D>,
+    T: hyperplane::CosineApproximate<'a, T, D>,
 {
-    fn tree(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
-        // TODO: `MaybeUnint` this?
+    fn tree(query: &'a [T; D], hp: &'a [[T; D]; N]) -> usize {
         let mut arr = [hyperplane::Sign::default(); N.ilog2() as usize];
         let mut idx = 0;
         for mem in arr.iter_mut() {
@@ -59,8 +80,7 @@ where
         hyperplane::Sign::to_usize(&arr)
     }
 
-    fn concatenate(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
-        // TODO: MaybeUninit this?
+    fn concatenate(query: &'a [T; D], hp: &'a [[T; D]; N]) -> usize {
         let mut arr = [hyperplane::Sign::default(); N];
         for (mem, hp_i) in arr.iter_mut().zip(hp.iter()) {
             *mem = T::sign_ip(query, hp_i);
@@ -68,16 +88,9 @@ where
 
         hyperplane::Sign::to_usize(&arr)
     }
-
-    pub fn bin(query: &'b [T; D], hp: &'a [[T; D]; N]) -> usize {
-        match CM {
-            ConstructionMethod::Tree => RandomProjection::tree(query, hp),
-            ConstructionMethod::Concatenate => RandomProjection::concatenate(query, hp),
-        }
-    }
 }
 
-mod hyperplane {
+pub mod hyperplane {
     use super::{fits_in_usize, ConstAssert, ConstructionMethod};
     #[derive(Copy, Clone, Debug, Default)]
     pub enum Sign {
