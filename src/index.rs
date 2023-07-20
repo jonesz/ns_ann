@@ -1,6 +1,6 @@
-use super::lsh::{hyperplane::CosineApproximate, ConstructionMethod, LSH};
-use core::ops::Range;
-use rand::Rng;
+use super::lsh::{hyperplane::CosineApproximate, LSH};
+
+type TupleRange = (usize, usize);
 
 trait Index<I> {
     /// Given a bin, return the set of identifiers that belong to that bin.
@@ -8,16 +8,13 @@ trait Index<I> {
     fn get(&self, bin: usize) -> Option<&[I]>;
 }
 
-struct ArrIndex<const N: usize, I, const NB: usize, const CM: ConstructionMethod> {
-    ranges: [Option<(usize, usize)>; NB],
+/// An index with the range search mechanism facilitated with an array.
+struct ArrIndex<const N: usize, I, const NB: usize> {
+    ranges: [Option<TupleRange>; NB],
     arr: [I; N],
-
-    marker: core::marker::PhantomData<ConstructionMethod>,
 }
 
-impl<const N: usize, I, const NB: usize, const CM: ConstructionMethod> Index<I>
-    for ArrIndex<N, I, NB, CM>
-{
+impl<const N: usize, I, const NB: usize> Index<I> for ArrIndex<N, I, NB> {
     fn get(&self, bin: usize) -> Option<&[I]> {
         if let Some(range) = self.ranges.get(bin).cloned().flatten() {
             Some(&self.arr[range.0..range.1])
@@ -27,44 +24,40 @@ impl<const N: usize, I, const NB: usize, const CM: ConstructionMethod> Index<I>
     }
 }
 
-// 'c, N: number of vectors indexed, NB: number of hyperplanes. T: scalar type.
-// D: dimension of each vector, CM: ConstructionMethod.
-impl<const N: usize, const NB: usize, const CM: ConstructionMethod> ArrIndex<N, usize, NB, CM> {
-    fn build_concatenate<'c, R: Rng, T, const D: usize, L: LSH<'c, NB, T, D>>(
-        rng: &mut R,
+impl<const N: usize, const NB: usize> ArrIndex<N, usize, NB> {
+    fn build_concatenate<'c, T, const D: usize, L: LSH<'c, NB, T, D>>(
         x: &'c [[T; D]; N],
         h: &'c [[T; D]; NB],
     ) -> Self
     where
-        T: Default + Copy,
         T: CosineApproximate<'c, T, D>,
     {
-        let mut x_proj = [(0usize, 0usize); N];
-        for (idx, (mem, query)) in x_proj.iter_mut().zip(x).enumerate() {
-            *mem = (idx, L::bin(query, h));
+        let mut ranges: [Option<TupleRange>; NB] = [None; NB];
+        let mut arr = [0usize; N];
+
+        // Build `(idx, proj)` then sort by `proj`. Compute the range for each `proj` value.
+        // Drop `proj` within `tmp_idx_proj` to build `arr`.
+        let mut tmp_idx_proj = [(0usize, 0usize); N];
+        for (idx, (proj_mem, query)) in tmp_idx_proj.iter_mut().zip(x).enumerate() {
+            *proj_mem = (idx, L::bin(query, h));
         }
 
         // TODO: `sort_unstable_by_key` throws some lifetime issues.
-        x_proj.sort_unstable_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap());
+        tmp_idx_proj
+            .sort_unstable_by(|(_, a_proj), (_, b_proj)| a_proj.partial_cmp(b_proj).unwrap());
 
-        let mut ranges: [Option<(usize, usize)>; NB] = [None; NB];
-        let mut arr = [0usize; N];
-
-        for (idx, (a, (id, bin))) in arr.iter_mut().zip(x_proj).enumerate() {
-            *a = id;
+        for (idx, (arr_mem, (id, proj))) in arr.iter_mut().zip(tmp_idx_proj).enumerate() {
+            *arr_mem = id; // This value of `arr` becomes the current idx.
 
             // Update the range.
-            let r = ranges.get_mut(bin).unwrap();
-            match r {
-                Some(range) => *r = Some((range.0, idx)),
-                None => *r = Some((idx, N)),
+            let potential_range = ranges.get_mut(proj).unwrap();
+            match potential_range {
+                // TODO: This update writes a new value when `idx + 1` is technically all that's needed.
+                Some(existing_range) => *potential_range = Some((existing_range.0, idx)), // Update the range.
+                None => *potential_range = Some((idx, N)), // If this range is unset, the range exists from `idx` to `N`.
             }
         }
 
-        ArrIndex {
-            ranges,
-            arr,
-            marker: core::marker::PhantomData,
-        }
+        ArrIndex { ranges, arr }
     }
 }
