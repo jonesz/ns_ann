@@ -16,8 +16,3 @@ criterion = { version = "0.4", features = ["html_reports"] }
 [[bench]]
 name = "lsh"
 harness = false
-
-[workspace]
-members = [
-  "ns_example"
-]
