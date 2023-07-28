@@ -1,4 +1,4 @@
-use super::lsh::{hyperplane::CosineApproximate, LSH};
+use super::lsh::LSH;
 
 type TupleRange = (usize, usize);
 
@@ -25,13 +25,10 @@ impl<const N: usize, I, const NB: usize> Index<I> for ArrIndex<N, I, NB> {
 }
 
 impl<const N: usize, const NB: usize> ArrIndex<N, usize, NB> {
-    fn build_concatenate<'c, T, const D: usize, L: LSH<'c, NB, T, D>>(
+    fn build_concatenate<'c, T, const D: usize, L: LSH<'c, T, D>>(
         x: &'c [[T; D]; N],
-        h: &'c [[T; D]; NB],
-    ) -> Self
-    where
-        T: CosineApproximate<'c, T, D>,
-    {
+        l: &L,
+    ) -> Self {
         let mut ranges: [Option<TupleRange>; NB] = [None; NB];
         let mut arr = [0usize; N];
 
@@ -39,7 +36,7 @@ impl<const N: usize, const NB: usize> ArrIndex<N, usize, NB> {
         // Drop `proj` within `tmp_idx_proj` to build `arr`.
         let mut tmp_idx_proj = [(0usize, 0usize); N];
         for (idx, (proj_mem, query)) in tmp_idx_proj.iter_mut().zip(x).enumerate() {
-            *proj_mem = (idx, L::bin(query, h));
+            *proj_mem = (idx, l.bin(query));
         }
 
         // TODO: `sort_unstable_by_key` throws some lifetime issues.

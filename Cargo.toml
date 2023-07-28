@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = { version = "0.8.5", features = ["small_rng"] }
-rand_distr = { version = "0.4.3" }
-num-traits = "0.2.15"
+rand = { version = "0.8.5", default-features = false, features = ["small_rng"] }
+rand_distr = { version = "0.4.3", default-features = false }
+num-traits = { version = "0.2.15", default-features = false }
 
 [dev-dependencies]
 criterion = { version = "0.4", features = ["html_reports"] }
@@ -16,3 +16,6 @@ criterion = { version = "0.4", features = ["html_reports"] }
 [[bench]]
 name = "lsh"
 harness = false
+
+[workspace]
+members = ["examples/*"]
